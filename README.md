@@ -45,7 +45,9 @@ npm run tauri dev
 
 `tauri dev` starts Vite on port 43123. Stop any other dev server on that port first. A release build is `npm run tauri build`.
 
-**Windows and macOS builds are unverified.** This tree was only compiled and launched on Linux. `tauri.conf.json` stays cross-platform, but nobody has produced a Windows or macOS bundle from it.
+**Windows and macOS builds are unverified.** This tree was only compiled and launched on Linux.
+
+`.github/workflows/build.yml` is the cross-platform matrix: `npm test`, then unsigned Tauri bundles for Linux x64, Windows x64, and macOS Apple Silicon and Intel. macOS bundles are ad-hoc signed (`signingIdentity: "-"`). Artifacts are whatever the CI host attaches to the run (GitHub Actions artifacts, or the equivalent on a connected app). Origin does not run this file. Depot CI has no Windows or macOS sandboxes and would rebuild every job on Linux. A host with real Windows and macOS runners, such as GitHub Actions or Buildkite with those queues mapped, is still required before anyone can download a Windows or Mac installer.
 
 ## Tests
 
