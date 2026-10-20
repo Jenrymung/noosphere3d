@@ -1,0 +1,13 @@
+# Pre-release checks still owed
+
+These need a person, another operating system, or a real GPU. This Linux VM did not complete them.
+
+- [ ] **Orca** on Linux, against the Tauri window: selection announcements, Reader open, command palette. Attempted here with Orca 46.1. A normal launch does not register the WebKitGTK window with AT-SPI. With the WebKit sandbox turned off for the test, the window does appear (buttons, the neighbourhood tree, and the About dialog). Orca spoke “Screen reader on.” and then produced no announcement for selection, the Reader, or the palette. A second launch stalled in speech-dispatcher. Those three flows are still owed.
+- [ ] **NVDA** on Windows: the same three flows.
+- [ ] **VoiceOver** on macOS: the same three flows.
+- [ ] **Windows build** (unsigned installer is enough until signing is decided) and a short launch.
+- [ ] **macOS build** (ad-hoc signature only, until the Apple Developer decision) and a short launch.
+- [ ] **SDF titles on a real GPU**, compared with the CSS2D toggle. Software WebGL on this VM is not that measurement.
+- [ ] **OS shortcut conflicts** on each platform: confirm the keymap still avoids Cmd+H, Cmd+M, Cmd+Q, Cmd+Space, Cmd+Tab, Alt+Tab, and Alt+F4, and that Ctrl+Tab, Alt+digit, and symbol keys (`/` and `?`) behave on a non-US layout and on each WebView.
+
+Also still outside this checklist, and waiting on the maintainer: confirm the MIT OR Apache-2.0 licence, choose the public app name if it changes, and decide Windows and macOS signing. Do not publish a release or set up a GitHub mirror as part of closing this list until those are decided.

@@ -1,6 +1,6 @@
 # 3D Mind Map
 
-Keyboard-first desktop app for free-form 3D mind maps. This slice covers the Phase 0 scene, the Phase 1 map engine, Phase 2 navigation, Phase 3 editing, Phase 4 links and link types, Phase 5 files, tabs, and crash recovery, and Phase 6 keyboard and accessibility basics. Waypoint editing is later. The plan is `docs/plan.md`.
+Keyboard-first desktop app for free-form 3D mind maps. This slice covers the Phase 0 scene, the Phase 1 map engine, Phase 2 navigation, Phase 3 editing, Phase 4 links and link types, Phase 5 files, tabs, and crash recovery, Phase 6 keyboard and accessibility basics, and the Phase 7 housekeeping that does not need a maintainer decision. Waypoint editing is later. The plan is `docs/plan.md`.
 
 The UI and the engine are TypeScript (Svelte 5, Vite, Three.js). The desktop shell is Tauri 2. The same page also runs in a browser, which is how the scene was checked on this Linux machine.
 
@@ -131,6 +131,18 @@ Frame times in the HUD and from **Measure orbit** are real `requestAnimationFram
 - `src/lib/scene` — Three.js view and the dummy stress map
 - `samples/urban-flooding.mindmap3d` — the section 7.2 sample, canonical JSON
 
+## About, the file schema, and the error log
+
+Help → About shows version 0.1.0, third-party notices, and the licence status. Help → Check for updates asks the operating system to open `https://github.com/mindmap3d/mindmap3d/releases`. That address is a placeholder until a public repository exists. The app does not request the page itself.
+
+`docs/mindmap3d.schema.json` is the published JSON Schema for `.mindmap3d`. Contribution sign-off is in `CONTRIBUTING.md` (Developer Certificate of Origin, `git commit -s`).
+
+A desktop build appends errors to `logs/error.log` inside the app data folder. The browser preview keeps the same lines in local storage under `mindmap3d.error-log.v1`. The log stays on this computer.
+
+`docs/pre-release-checklist.md` lists the manual checks still owed (screen readers, Windows and macOS builds, SDF titles on a real GPU, and per-platform shortcut conflicts).
+
+Frame-rate targets in the plan (about 60 fps near 1,000 nodes on an integrated GPU, usable navigation near 5,000 with level-of-detail) need a real GPU. Software WebGL on this machine can time file open/save and a software-rendered orbit. It cannot stand in for that GPU number.
+
 ## Licence
 
-MIT OR Apache-2.0. See `LICENSE-MIT` and `LICENSE-APACHE`.
+The recommended licence is MIT OR Apache-2.0. `LICENSE-MIT` and `LICENSE-APACHE` are in the repository. Confirmation of that licence is still pending.

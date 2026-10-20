@@ -1,3 +1,4 @@
+import { BROWSER_ERROR_LOG_KEY } from "./errorLog";
 import { normalizePreferences, type Preferences } from "./preferences";
 import { createDisk, memorySave, memoryWriteRecovery, type FileStamp, type MemoryDisk, type MemoryRecovery } from "./memoryFs";
 
@@ -40,12 +41,25 @@ export interface FileBridge {
   destroyWindow(): Promise<void>;
   takeStartupPaths(): Promise<string[]>;
   listFiles(): Promise<string[]>;
+  /** Append one line to the local error log. Returns the path or browser-storage label. */
+  appendErrorLog(line: string): Promise<string>;
+  errorLogPath(): Promise<string>;
   /** True when the desktop shell is performing the writes. */
   native: boolean;
 }
 
 const FILES_KEY = "mindmap3d.files.v1";
 const PREF_KEY = "mindmap3d.preferences.v1";
+const BROWSER_LOG_LABEL = `browser-storage:${BROWSER_ERROR_LOG_KEY}`;
+
+function rememberBrowserError(line: string): string {
+  if (typeof localStorage === "undefined") return BROWSER_LOG_LABEL;
+  const prev = localStorage.getItem(BROWSER_ERROR_LOG_KEY) ?? "";
+  const next = prev ? `${prev}\n${line}` : line;
+  const capped = next.length > 100_000 ? next.slice(next.length - 100_000) : next;
+  localStorage.setItem(BROWSER_ERROR_LOG_KEY, capped);
+  return BROWSER_LOG_LABEL;
+}
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -153,6 +167,12 @@ export function createMemoryBridge(disk = loadDisk()): FileBridge {
     async listFiles() {
       return [...disk.files.keys()].sort();
     },
+    async appendErrorLog(line) {
+      return rememberBrowserError(line);
+    },
+    async errorLogPath() {
+      return BROWSER_LOG_LABEL;
+    },
   };
 }
 
@@ -230,6 +250,12 @@ export async function createFileBridge(): Promise<FileBridge> {
     },
     async listFiles() {
       return [];
+    },
+    async appendErrorLog(line) {
+      return invoke("append_error_log", { line });
+    },
+    async errorLogPath() {
+      return invoke("error_log_file");
     },
   };
 }

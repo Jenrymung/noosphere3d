@@ -66,11 +66,15 @@ export function viewportDiagonal(viewport: { width: number; height: number }): n
   return Math.hypot(viewport.width, viewport.height);
 }
 
+/** Above this, the median is taken from a stride sample. Each sample still searches every point. */
+const SPACING_SAMPLE = 256;
+
 /** Median nearest-neighbour distance. One node, or a pile on one point, uses 1. */
 export function typicalSpacing(points: readonly Vec3[]): number {
   if (points.length < 2) return 1;
+  const step = points.length > SPACING_SAMPLE ? Math.ceil(points.length / SPACING_SAMPLE) : 1;
   const nearest: number[] = [];
-  for (let i = 0; i < points.length; i += 1) {
+  for (let i = 0; i < points.length; i += step) {
     let best = Infinity;
     for (let j = 0; j < points.length; j += 1) {
       if (i === j) continue;

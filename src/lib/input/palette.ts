@@ -55,6 +55,8 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: "undo", label: "Undo", keys: "Mod+Z" },
   { id: "redo", label: "Redo", keys: "Mod+Shift+Z" },
   { id: "help", label: "Shortcut help", keys: "?" },
+  { id: "about", label: "About", keys: "Help" },
+  { id: "updates", label: "Check for updates", keys: "Help" },
   { id: "legend", label: "Legend", keys: "Shift+L" },
   { id: "types", label: "Link-type manager", keys: "Mod+Shift+L" },
   { id: "link", label: "Start a link", keys: "L" },

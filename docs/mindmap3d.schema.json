@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mindmap3d.app/schema/mindmap3d.schema.json",
+  "title": "3D Mind Map document",
+  "description": "JSON inside a .mindmap3d file, format version MAJOR.MINOR. This schema is published with the app. The app licence is pending the maintainer's confirmation; LICENSE-MIT and LICENSE-APACHE are in the repository as the recommended MIT OR Apache-2.0 pair.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "linkTypes", "nodes", "links"],
+  "properties": {
+    "format": { "const": "mindmap3d" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+    "id": { "type": "string" },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "modifiedAt": { "type": "string" },
+        "appVersion": { "type": "string" }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultLinkTypeId": { "type": "string" },
+        "resourcesFolder": { "type": "string" }
+      }
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "camera": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["position", "target"],
+          "properties": {
+            "position": { "$ref": "#/$defs/vec3" },
+            "target": { "$ref": "#/$defs/vec3" },
+            "fov": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "linkTypeFilters": {
+          "type": "object",
+          "additionalProperties": { "enum": ["shown", "dimmed", "hidden"] }
+        }
+      }
+    },
+    "linkTypes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/linkType" }
+    },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/node" }
+    },
+    "links": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/link" }
+    },
+    "extensions": { "type": "object" }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "linkType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "name", "color", "pattern", "width", "direction"],
+      "properties": {
+        "order": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "pattern": { "enum": ["solid", "dashed", "dotted"] },
+        "width": { "enum": ["thin", "normal", "thick"] },
+        "direction": { "enum": ["directed", "bidirectional", "undirected"] },
+        "icon": { "type": "string", "maxLength": 8 },
+        "description": { "type": "string" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "position"],
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "text": { "type": "string" },
+        "position": { "$ref": "#/$defs/vec3" },
+        "pinned": { "type": "boolean" },
+        "style": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "size": { "type": "number" },
+            "icon": { "type": "string" }
+          }
+        }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target", "typeId"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "typeId": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "maxLength": 200 },
+        "text": { "type": "string" },
+        "waypoints": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["order", "position"],
+            "properties": {
+              "order": { "type": "string", "minLength": 1 },
+              "position": { "$ref": "#/$defs/vec3" }
+            }
+          }
+        },
+        "style": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bow": { "type": "number" },
+            "labelSegment": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

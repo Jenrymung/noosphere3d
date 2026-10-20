@@ -1,8 +1,8 @@
 mod files;
 
 use files::{
-    backup_dir_for, delete_recovery, list_recovery, read_map, save_map, write_recovery, RecoveryRecord, SaveOutcome,
-    SaveRequest,
+    append_error_line, backup_dir_for, delete_recovery, error_log_path, list_recovery, read_map, save_map, write_recovery,
+    RecoveryRecord, SaveOutcome, SaveRequest,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -72,6 +72,21 @@ fn delete_recovery_file(app: tauri::AppHandle, id: String) -> Result<(), String>
     delete_recovery(&recovery_root(&app)?, &id)
 }
 
+fn app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path().app_data_dir().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn error_log_file(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(error_log_path(&app_data_dir(&app)?).display().to_string())
+}
+
+#[tauri::command]
+fn append_error_log(app: tauri::AppHandle, line: String) -> Result<String, String> {
+    let path = append_error_line(&app_data_dir(&app)?, &line)?;
+    Ok(path.display().to_string())
+}
+
 fn deliver_paths(app: &tauri::AppHandle, paths: Vec<String>) {
     if paths.is_empty() {
         return;
@@ -108,7 +123,9 @@ pub fn run() {
             save_map_file,
             write_recovery_file,
             list_recovery_files,
-            delete_recovery_file
+            delete_recovery_file,
+            error_log_file,
+            append_error_log
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

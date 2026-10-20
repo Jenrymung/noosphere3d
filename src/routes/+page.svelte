@@ -32,7 +32,9 @@
     typeRows,
     withFilter,
   } from "$lib/input/linkOps";
+  import { RELEASES_PAGE_URL, openReleasesPage } from "$lib/about/releases";
   import { createFileBridge, createMemoryBridge, type FileBridge, type RecoveryItem } from "$lib/io/bridge";
+  import { BROWSER_ERROR_LOG_KEY, installErrorLog } from "$lib/io/errorLog";
   import { DEFAULT_PREFERENCES, normalizePreferences, type Preferences } from "$lib/io/preferences";
   import { urbanFloodingDocument } from "$lib/io/sampleMap";
   import { serialize } from "$lib/io/serialize";
@@ -46,6 +48,7 @@
   } from "$lib/scene/createScene";
   import { stressMap } from "$lib/scene/dummyMap";
   import { placeNode } from "$lib/scene/placement";
+  import AboutPanel from "$lib/ui/AboutPanel.svelte";
   import FileDialogs, { type AppDialog } from "$lib/ui/FileDialogs.svelte";
   import HelpSheet from "$lib/ui/HelpSheet.svelte";
   import LinkChrome from "$lib/ui/LinkChrome.svelte";
@@ -120,6 +123,8 @@
   let prefsOpen = $state(false);
   let paletteOpen = $state(false);
   let helpOpen = $state(false);
+  let aboutOpen = $state(false);
+  let errorLogPath = $state(`browser-storage:${BROWSER_ERROR_LOG_KEY}`);
   let liveText = $state("");
   let focusBack: HTMLElement | null = null;
   let dialogWasOpen = false;
@@ -342,8 +347,9 @@
 
   function openPalette() {
     if (paletteOpen) return;
-    rememberFocus();
+    if (!helpOpen && !aboutOpen) rememberFocus();
     helpOpen = false;
+    aboutOpen = false;
     paletteOpen = true;
   }
 
@@ -355,8 +361,9 @@
 
   function openHelp() {
     if (helpOpen) return;
-    rememberFocus();
+    if (!paletteOpen && !aboutOpen) rememberFocus();
     paletteOpen = false;
+    aboutOpen = false;
     helpOpen = true;
   }
 
@@ -364,6 +371,24 @@
     if (!helpOpen) return;
     helpOpen = false;
     restoreFocus();
+  }
+
+  function openAbout() {
+    if (aboutOpen) return;
+    if (!paletteOpen && !helpOpen) rememberFocus();
+    paletteOpen = false;
+    helpOpen = false;
+    aboutOpen = true;
+  }
+
+  function closeAbout() {
+    if (!aboutOpen) return;
+    aboutOpen = false;
+    restoreFocus();
+  }
+
+  function checkForUpdates() {
+    void openReleasesPage();
   }
 
   function togglePreferences() {
@@ -402,6 +427,8 @@
     else if (id === "undo") undo();
     else if (id === "redo") redo();
     else if (id === "help") openHelp();
+    else if (id === "about") openAbout();
+    else if (id === "updates") checkForUpdates();
     else if (id === "legend") screen = screen?.name === "legend" ? null : { name: "legend" };
     else if (id === "types") screen = screen?.name === "manager" ? null : { name: "manager" };
     else if (id === "link") beginLink();
@@ -1653,7 +1680,7 @@
       cycleFocus(event.shiftKey ? -1 : 1);
       return;
     }
-    if (paletteOpen || helpOpen) return;
+    if (paletteOpen || helpOpen || aboutOpen) return;
     if (dialog) return;
     const typing = typingTarget(event.target);
     if (!typing && bindingById("help").chords.some((chord) => matchesChord(chord, event))) {
@@ -1715,7 +1742,7 @@
       togglePreferences();
       return;
     }
-    if (key === "n" && !event.shiftKey && !screen && panel !== "edit" && !linkMode && !prefsOpen) {
+    if (key === "n" && !event.shiftKey && !screen && panel !== "edit" && !linkMode && !prefsOpen && !aboutOpen) {
       event.preventDefault();
       event.stopPropagation();
       newMap();
@@ -1884,7 +1911,7 @@
       redo,
       togglePin,
       commitMove,
-      blocksSceneKeys: () => screen !== null || prefsOpen || dialog !== null || paletteOpen || helpOpen,
+      blocksSceneKeys: () => screen !== null || prefsOpen || dialog !== null || paletteOpen || helpOpen || aboutOpen,
       sceneKey,
       linkActive: () => linkMode !== null,
       hoverLinkTarget: (id) => {
@@ -1950,6 +1977,9 @@
         prefsOpen,
         paletteOpen,
         helpOpen,
+        aboutOpen,
+        releasesUrl: RELEASES_PAGE_URL,
+        errorLogPath,
         live: liveText,
         axisGizmo: preferences.showAxisGizmo,
       }),
@@ -1966,6 +1996,8 @@
       },
       openPalette: () => openPalette(),
       closePalette: () => closePalette(),
+      openAbout: () => openAbout(),
+      closeAbout: () => closeAbout(),
       setPreferences: (partial: Partial<Preferences>) => updatePreferences({ ...preferences, ...partial }),
       selectNode: (id: string | null) => scene?.selectNode(id),
       selectLink: (id: string) => scene?.selectLink(id),
@@ -1995,6 +2027,9 @@
       if (quitting) return;
       if (titlesNeedingPrompt().length > 0) event.preventDefault();
     };
+    const stopErrors = installErrorLog((line) => {
+      void bridge.appendErrorLog(line).catch(() => {});
+    });
     window.addEventListener("beforeunload", onUnload);
     const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
     const onTheme = () => {
@@ -2006,6 +2041,7 @@
     let stopClose = () => {};
     void (async () => {
       bridge = await createFileBridge();
+      errorLogPath = await bridge.errorLogPath();
       paintPreferences(await bridge.loadPreferences());
       stopOpen = bridge.onOpenPaths((paths) => {
         for (const path of paths) void openFromPath(path);
@@ -2019,6 +2055,7 @@
       timer = setInterval(() => void tickTabs(), 400);
     })();
     return () => {
+      stopErrors();
       if (timer) clearInterval(timer);
       themeMedia.removeEventListener("change", onTheme);
       window.removeEventListener("beforeunload", onUnload);
@@ -2175,6 +2212,15 @@
     </div>
 
     <div class="group">
+      <p class="kicker">Help</p>
+      <div class="row">
+        <button type="button" class:on={helpOpen} onclick={openHelp}>Shortcuts</button>
+        <button type="button" class:on={aboutOpen} onclick={openAbout}>About</button>
+        <button type="button" onclick={checkForUpdates}>Check for updates</button>
+      </div>
+    </div>
+
+    <div class="group">
       <p class="kicker">Edit</p>
       <div class="row">
         <button type="button" onclick={undo} disabled={!canUndo}>Undo</button>
@@ -2315,6 +2361,9 @@
   {/if}
   {#if helpOpen}
     <HelpSheet sections={shortcutSections} onClose={closeHelp} />
+  {/if}
+  {#if aboutOpen}
+    <AboutPanel logPath={errorLogPath} onUpdates={checkForUpdates} onClose={closeAbout} />
   {/if}
   {#if prefsOpen}
     <PreferencesPanel {preferences} onChange={updatePreferences} onClose={togglePreferences} />

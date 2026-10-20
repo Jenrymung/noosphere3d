@@ -267,6 +267,26 @@ pub fn backup_dir_for(app_data: &Path, location: &str, map_path: &Path) -> PathB
     app_data.join("backups").join(safe)
 }
 
+pub fn error_log_path(app_data: &Path) -> PathBuf {
+    app_data.join("logs").join("error.log")
+}
+
+/// Append one local line. Nothing here opens a network connection.
+pub fn append_error_line(app_data: &Path, line: &str) -> Result<PathBuf, String> {
+    let logs = app_data.join("logs");
+    fs::create_dir_all(&logs).map_err(|error| error.to_string())?;
+    let path = error_log_path(app_data);
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    let flat = line.replace(['\n', '\r'], " ");
+    writeln!(file, "{flat}").map_err(|error| error.to_string())?;
+    file.sync_all().map_err(|error| error.to_string())?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,6 +430,20 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert!(found[0].map_text.contains("# Kept"));
         assert!(dir.join("rec-cord.json").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn error_log_stays_in_the_app_data_folder() {
+        let dir = temp_dir("errlog");
+        let path = append_error_line(&dir, "2026-10-20T20:00:00.000Z error disk full").unwrap();
+        append_error_line(&dir, "second line\nwith a break").unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(path.ends_with("logs/error.log"));
+        assert!(path.starts_with(&dir));
+        assert!(text.contains("disk full"));
+        assert!(text.contains("second line with a break"));
+        assert_eq!(text.lines().count(), 2);
         let _ = fs::remove_dir_all(&dir);
     }
 }
