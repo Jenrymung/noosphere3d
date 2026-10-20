@@ -6,12 +6,13 @@ import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeome
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { BatchedText, Text } from "troika-three-text";
 import fontUrl from "@fontsource/source-sans-3/files/source-sans-3-latin-400-normal.woff?url";
-import { LinkIndex, linksForPair, neighbours, sortedWaypoints } from "../core/graph";
+import { LinkIndex, linksForPair, neighbours, sortedWaypoints, visibleNeighbourIds } from "../core/graph";
 import { nodeTitle } from "../core/title";
 import type { Link, MapDocument, Vec3 } from "../core/types";
 import {
   chooseDepthTarget,
   chooseSpatialTarget,
+  typicalSpacing,
   type ArrowDirection,
   type SpatialCandidate,
 } from "../input/spatial";
@@ -123,6 +124,7 @@ export function createMindMapScene(
   scene.add(new THREE.GridHelper(160, 32, 0x243044, 0x1a2736));
 
   let nodes: NodeView[] = [];
+  let spacing = 1;
   let nodeIndex = new Map<string, number>();
   let linkIndex = LinkIndex.from(doc);
   let currentDoc = doc;
@@ -207,6 +209,7 @@ export function createMindMapScene(
     status = "Building icons and links";
     buildNodes(next);
     buildLinks(next);
+    spacing = typicalSpacing(nodes.map((node) => node.position));
     selectedId = next.nodes["n-flood"]
       ? "n-flood"
       : next.nodes["s2-3-3-2"]
@@ -490,6 +493,8 @@ export function createMindMapScene(
       focus();
       return;
     }
+    const linked = visibleNeighbourIds(currentDoc, linkIndex, selectedId);
+    const viewport = { width: host.clientWidth || 1, height: host.clientHeight || 1 };
     const candidates: SpatialCandidate[] = [];
     for (const node of nodes) {
       if (node.id === selectedId) continue;
@@ -498,16 +503,20 @@ export function createMindMapScene(
       candidates.push({
         id: node.id,
         screen: { x: screen.x, y: screen.y, depth: screen.depth },
-        linked: neighbourIds.has(node.id),
+        world: { x: node.position.x, y: node.position.y, z: node.position.z },
+        linked: linked.has(node.id),
       });
     }
     const result = chooseSpatialTarget({
       currentId: selectedId,
       current: { x: currentScreen.x, y: currentScreen.y, depth: currentScreen.depth },
+      currentWorld: { x: current.position.x, y: current.position.y, z: current.position.z },
       candidates,
       direction,
       previousId: lastSpatial?.fromId,
       previousDirection: lastSpatial?.direction,
+      viewport,
+      typicalSpacing: spacing,
     });
     if (!result.nextId) {
       message = "Nothing that way";
@@ -524,14 +533,29 @@ export function createMindMapScene(
     if (!current) return;
     const currentScreen = screenOf(current.position);
     if (!currentScreen || currentScreen.behind) return;
+    const linked = visibleNeighbourIds(currentDoc, linkIndex, selectedId);
+    const viewport = { width: host.clientWidth || 1, height: host.clientHeight || 1 };
     const candidates: SpatialCandidate[] = [];
     for (const node of nodes) {
       if (node.id === selectedId) continue;
       const screen = screenOf(node.position);
       if (!screen || screen.behind) continue;
-      candidates.push({ id: node.id, screen });
+      candidates.push({
+        id: node.id,
+        screen,
+        world: { x: node.position.x, y: node.position.y, z: node.position.z },
+        linked: linked.has(node.id),
+      });
     }
-    const next = chooseDepthTarget(currentScreen, candidates, sense);
+    const next = chooseDepthTarget({
+      current: currentScreen,
+      currentWorld: { x: current.position.x, y: current.position.y, z: current.position.z },
+      cameraPosition: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      candidates,
+      sense,
+      viewport,
+      typicalSpacing: spacing,
+    });
     if (!next) {
       message = sense === "closer" ? "Nothing nearer" : "Nothing farther";
       messageUntil = performance.now() + 500;

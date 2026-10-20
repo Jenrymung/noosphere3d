@@ -73,14 +73,3 @@ export function starterLinkTypes(): Record<string, LinkType> {
 }
 
 export const RELATES_TO_ID = "relates-to";
-
-export function placeholderLinkType(order: string): LinkType {
-  return {
-    order,
-    name: "Unknown type",
-    color: "#999999",
-    pattern: "solid",
-    width: "normal",
-    direction: "undirected",
-  };
-}

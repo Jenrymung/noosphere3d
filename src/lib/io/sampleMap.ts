@@ -4,7 +4,7 @@ import type { MapDocument } from "../core/types";
 export function urbanFloodingDocument(): MapDocument {
   return {
     format: "mindmap3d",
-    version: 1,
+    version: "1.0",
     id: "01JB2X6Q7Z9K3M4N5P6R7S8T9V",
     meta: {
       title: "Urban flooding",

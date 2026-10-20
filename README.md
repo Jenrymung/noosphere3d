@@ -1,6 +1,6 @@
 # 3D Mind Map
 
-Keyboard-first desktop app for free-form 3D mind maps. This slice is the Phase 0 scene and the Phase 1 headless map engine: a sample you can fly around, plus a document model with validation, undo, and tests. The reader, tabs, saving, and the link palette are not in this build.
+Keyboard-first desktop app for free-form 3D mind maps. This slice is the Phase 0 scene and the Phase 1 headless map engine: a sample you can fly around, plus a document model with validation, undo, and tests. The reader, tabs, saving, and the link palette are not in this build. The plan is `docs/plan.md`.
 
 The UI and the engine are TypeScript (Svelte 5, Vite, Three.js). The desktop shell is Tauri 2. The same page also runs in a browser, which is how the scene was checked on this Linux machine.
 
@@ -73,7 +73,8 @@ Frame times in the HUD and from **Measure orbit** are real `requestAnimationFram
 
 - `src/lib/core` — document, commands, history, graph index
 - `src/lib/io` — Valibot schema, integrity repair, migrations, canonical JSON
-- `src/lib/input/spatial.ts` — one screen-space score for arrow keys (angle, screen distance, depth, link bonus)
+- `src/lib/input/spatialNav.config.ts` — arrow-key score weights (angle, screen distance, 3D distance, link bonus) and cone limits
+- `src/lib/input/spatial.ts` — that score, used for arrow keys and depth steps
 - `src/lib/scene` — Three.js view and the dummy stress map
 - `samples/urban-flooding.mindmap3d` — the section 7.2 sample, canonical JSON
 

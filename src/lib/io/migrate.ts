@@ -1,5 +1,5 @@
 import { starterLinkTypes } from "../core/starter";
-import { APP_VERSION, CURRENT_VERSION, type MapDocument } from "../core/types";
+import { APP_VERSION, CURRENT_FORMAT, CURRENT_MAJOR, CURRENT_MINOR, parseFormatVersion, type MapDocument } from "../core/types";
 import { MapLoadError } from "./schema";
 
 export interface Migration {
@@ -54,7 +54,7 @@ export function migrate0to1(input: unknown): unknown {
   const title = typeof input.title === "string" ? input.title : "Untitled map";
   return {
     format: "mindmap3d",
-    version: 1,
+    version: CURRENT_FORMAT,
     meta: {
       title,
       createdAt: now,
@@ -78,40 +78,39 @@ export interface MigrationTrace {
   applied: string[];
   /** True when the file's major version is newer than this app. Do not open or write it. */
   newerMajor: boolean;
+  /** Same major, newer minor. Open the file and keep its version string. */
+  newerMinor: boolean;
   value: unknown;
-}
-
-function minorVersion(value: unknown): number {
-  if (value == null) return 0;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new MapLoadError("Map minor version must be a non-negative integer");
-  }
-  return value;
 }
 
 export function migrateToCurrent(input: unknown): MigrationTrace {
   if (!isRecord(input)) throw new MapLoadError("Map file must be a JSON object");
   if (input.format !== "mindmap3d") throw new MapLoadError('Not a mindmap3d file (missing format "mindmap3d")');
-  if (typeof input.version !== "number" || !Number.isInteger(input.version)) {
-    throw new MapLoadError("Map file is missing an integer version");
-  }
-  if (input.version > CURRENT_VERSION) {
-    return { from: input.version, applied: [], newerMajor: true, value: input };
-  }
-  // A newer minor is not a migration. Load opens the file, and save writes unknown fields back.
-  minorVersion(input.minor);
-  let value: unknown = input;
-  let version = input.version;
-  const applied: string[] = [];
-  while (version < CURRENT_VERSION) {
-    const step = MIGRATIONS.find((migration) => migration.from === version);
-    if (!step) throw new MapLoadError(`No migration from format version ${version}`);
-    value = step.migrate(value);
-    applied.push(step.name);
-    version = step.to;
-    if (!isRecord(value) || value.version !== version) {
-      throw new MapLoadError(`Migration ${step.name} did not produce version ${version}`);
+  if (input.version === 0) {
+    const step = MIGRATIONS.find((migration) => migration.from === 0);
+    if (!step) throw new MapLoadError("No migration from format version 0");
+    const value = step.migrate(input);
+    if (!isRecord(value) || value.version !== CURRENT_FORMAT) {
+      throw new MapLoadError(`Migration ${step.name} did not produce version ${CURRENT_FORMAT}`);
     }
+    return { from: 0, applied: [step.name], newerMajor: false, newerMinor: false, value };
   }
-  return { from: input.version, applied, newerMajor: false, value };
+  const parsed = parseFormatVersion(input.version);
+  if (!parsed) {
+    throw new MapLoadError('Map version must be "MAJOR.MINOR" (a plain integer 1 is read as "1.0")');
+  }
+  if (parsed.major > CURRENT_MAJOR) {
+    return { from: parsed.major, applied: [], newerMajor: true, newerMinor: false, value: input };
+  }
+  if (parsed.major < CURRENT_MAJOR) {
+    throw new MapLoadError(`No migration from format version ${parsed.text}`);
+  }
+  const value = input.version === parsed.text ? input : { ...input, version: parsed.text };
+  return {
+    from: parsed.major,
+    applied: [],
+    newerMajor: false,
+    newerMinor: parsed.minor > CURRENT_MINOR,
+    value,
+  };
 }

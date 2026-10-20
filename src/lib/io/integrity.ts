@@ -1,6 +1,7 @@
 import { compareOrder, isOrderKey, orderKeyAfter } from "../core/order";
 import { normalizeTitle } from "../core/title";
-import { placeholderLinkType, RELATES_TO_ID, starterLinkTypes } from "../core/starter";
+import { RELATES_TO_ID, starterLinkTypes } from "../core/starter";
+import { CURRENT_FORMAT } from "../core/types";
 import {
   MAX_WAYPOINTS_PER_LINK,
   type Issue,
@@ -109,8 +110,8 @@ export function repairDocument(doc: MapDocument): Issue[] {
   const warnings: Issue[] = [];
   const raw = doc as MapDocument & Record<string, unknown>;
   raw.format = "mindmap3d";
-  if (typeof raw.version !== "number" || !Number.isInteger(raw.version) || raw.version < 1) {
-    raw.version = 1;
+  if (typeof raw.version !== "string" || !/^[0-9]+\.[0-9]+$/.test(raw.version)) {
+    raw.version = CURRENT_FORMAT;
   }
 
   if (!isRecord(raw.linkTypes)) raw.linkTypes = {};
@@ -185,6 +186,7 @@ export function repairDocument(doc: MapDocument): Issue[] {
   }
   raw.nodes = nextNodes;
 
+  const reassigned = new Map<string, number>();
   const nextLinks: Record<string, Link> = {};
   for (const id of Object.keys(raw.links).sort()) {
     const source = raw.links[id];
@@ -209,15 +211,19 @@ export function repairDocument(doc: MapDocument): Issue[] {
       warn(warnings, "id-renamed", `Link id "${id}" collided with another id and was renamed to "${nextId}".`);
     }
     taken.add(nextId);
-    if (typeof link.typeId !== "string" || link.typeId.length === 0) link.typeId = RELATES_TO_ID;
-    if (!raw.linkTypes[link.typeId]) {
-      const order = orderKeyAfter(Object.values(raw.linkTypes).map((type) => type.order));
-      raw.linkTypes[link.typeId] = placeholderLinkType(order);
-      warn(
-        warnings,
-        "unknown-type",
-        `Link "${nextId}" used missing type "${link.typeId}". Added a placeholder type.`,
-      );
+    const missingType =
+      typeof link.typeId !== "string" || link.typeId.length === 0
+        ? "(blank)"
+        : raw.linkTypes[link.typeId]
+          ? null
+          : link.typeId;
+    if (missingType !== null) {
+      if (!raw.linkTypes[RELATES_TO_ID]) {
+        raw.linkTypes[RELATES_TO_ID] = starterLinkTypes()[RELATES_TO_ID];
+        warn(warnings, "link-type-restored", 'Restored "relates to" for links whose type was missing.');
+      }
+      link.typeId = RELATES_TO_ID;
+      reassigned.set(missingType, (reassigned.get(missingType) ?? 0) + 1);
     }
     if (typeof link.text !== "string") link.text = link.text == null ? "" : String(link.text);
     repairTitle(link, warnings, `Link "${nextId}"`);
@@ -270,6 +276,16 @@ export function repairDocument(doc: MapDocument): Issue[] {
     nextLinks[nextId] = link;
   }
   raw.links = nextLinks;
+
+  for (const id of [...reassigned.keys()].sort()) {
+    const count = reassigned.get(id) ?? 0;
+    const noun = count === 1 ? "1 link" : `${count} links`;
+    warn(
+      warnings,
+      "type-reassigned",
+      `${noun} pointing at missing type "${id}" ${count === 1 ? "was" : "were"} moved to "relates to".`,
+    );
+  }
 
   if (!isRecord(raw.settings)) raw.settings = {};
   const settings = raw.settings;
@@ -345,9 +361,8 @@ export function checkInvariants(doc: MapDocument): Issue[] {
   const fail = (code: string, message: string) => errors.push({ level: "error", code, message });
 
   if (doc.format !== "mindmap3d") fail("format", "format must be mindmap3d");
-  if (!Number.isInteger(doc.version) || doc.version < 1) fail("version", "version must be an integer >= 1");
-  if (doc.minor != null && (!Number.isInteger(doc.minor) || doc.minor < 0)) {
-    fail("minor", "minor version must be a non-negative integer");
+  if (typeof doc.version !== "string" || !/^[0-9]+\.[0-9]+$/.test(doc.version)) {
+    fail("version", 'version must be "MAJOR.MINOR"');
   }
   const typeIds = Object.keys(doc.linkTypes);
   if (typeIds.length === 0) fail("link-types", "A map needs at least one link type");

@@ -6,7 +6,7 @@ import { generateKeyBetween } from "fractional-indexing";
 import { createEmptyMap } from "../core/document";
 import { MapSession } from "../core/session";
 import { nodeTitle } from "../core/title";
-import { CURRENT_MINOR, CURRENT_VERSION } from "../core/types";
+import { CURRENT_FORMAT } from "../core/types";
 import { checkInvariants } from "./integrity";
 import { loadMap } from "./load";
 import { urbanFloodingDocument } from "./sampleMap";
@@ -79,12 +79,15 @@ describe("integrity repairs", () => {
     doc.nodes["n-flood"].title = "  Line\nbreak  ";
     const loaded = loadMap(doc);
     expect(loaded.doc.links.lbad).toBeUndefined();
-    expect(loaded.doc.linkTypes.nope?.name).toBe("Unknown type");
-    expect(loaded.doc.links.lunknown.typeId).toBe("nope");
+    expect(loaded.doc.linkTypes.nope).toBeUndefined();
+    expect(loaded.doc.links.lunknown.typeId).toBe("relates-to");
     expect(loaded.doc.nodes["n-rain"].position).toEqual({ x: 0, y: 0, z: 0 });
     expect(loaded.doc.nodes["n-flood"].title).toBe("Line break");
     expect(loaded.warnings.map((issue) => issue.code)).toEqual(
-      expect.arrayContaining(["link-dropped", "unknown-type", "position-reset", "title-normalized"]),
+      expect.arrayContaining(["link-dropped", "type-reassigned", "position-reset", "title-normalized"]),
+    );
+    expect(loaded.warnings.find((issue) => issue.code === "type-reassigned")?.message).toBe(
+      '1 link pointing at missing type "nope" was moved to "relates to".',
     );
     expect(checkInvariants(loaded.doc)).toEqual([]);
   });
@@ -104,9 +107,12 @@ describe("integrity repairs", () => {
     for (const link of Object.values(doc.links)) link.typeId = "ghost";
     doc.settings!.defaultLinkTypeId = "nope";
     const loaded = loadMap(doc);
+    expect(Object.keys(loaded.doc.linkTypes)).toEqual(["relates-to"]);
     expect(loaded.doc.linkTypes["relates-to"].name).toBe("relates to");
-    expect(loaded.doc.linkTypes.ghost.name).toBe("Unknown type");
+    expect(Object.values(loaded.doc.links).every((link) => link.typeId === "relates-to")).toBe(true);
     expect(loaded.doc.settings?.defaultLinkTypeId).toBe("relates-to");
+    const report = loaded.warnings.find((issue) => issue.code === "type-reassigned");
+    expect(report?.message).toBe('4 links pointing at missing type "ghost" were moved to "relates to".');
   });
 
   it("caps waypoints and renames an id that collides with a link type", () => {
@@ -140,7 +146,7 @@ describe("migrations", () => {
     });
     expect(loaded.migratedFrom).toBe(0);
     expect(loaded.migrations).toEqual(["v0-arrays-to-v1-records"]);
-    expect(loaded.doc.version).toBe(1);
+    expect(loaded.doc.version).toBe("1.0");
     expect(loaded.doc.nodes.a.position).toEqual({ x: 1, y: 2, z: 3 });
     expect(loaded.doc.links.ab.typeId).toBe("relates-to");
     expect(loaded.doc.linkTypes.causes.direction).toBe("directed");
@@ -148,18 +154,32 @@ describe("migrations", () => {
     expect(checkInvariants(loaded.doc)).toEqual([]);
   });
 
-  it("refuses a file made with a newer major version and does not change it", () => {
+  it("reads a Phase 1 integer version 1 as 1.0", () => {
     const doc = urbanFloodingDocument();
-    doc.version = 2;
+    (doc as { version: unknown }).version = 1;
     const before = JSON.stringify(doc);
-    expect(() => loadMap(doc)).toThrow(/made with a newer version/);
-    expect(() => MapSession.load(doc)).toThrow(/made with a newer version/);
+    const loaded = loadMap(doc);
+    expect(loaded.doc.version).toBe("1.0");
+    expect(loaded.migratedFrom).toBeNull();
     expect(JSON.stringify(doc)).toBe(before);
+    expect(JSON.parse(serialize(loaded.doc)).version).toBe("1.0");
+  });
+
+  it("refuses a file made with a newer major version and does not change it", () => {
+    const refused = "This map was made with a newer version of the app. Please update to open it.";
+    for (const version of [2, "2.0", "2.3"]) {
+      const doc = urbanFloodingDocument();
+      (doc as { version: unknown }).version = version;
+      const before = JSON.stringify(doc);
+      expect(() => loadMap(doc)).toThrow(refused);
+      expect(() => MapSession.load(doc)).toThrow(refused);
+      expect(JSON.stringify(doc)).toBe(before);
+    }
   });
 
   it("opens a newer minor version and round-trips unknown fields", () => {
     const raw = JSON.parse(serialize(urbanFloodingDocument())) as Record<string, unknown>;
-    raw.minor = 4;
+    raw.version = "1.4";
     raw.reviewNote = { keep: true };
     const nodes = raw.nodes as Record<string, Record<string, unknown>>;
     nodes["n-flood"].glow = "soft";
@@ -175,9 +195,11 @@ describe("migrations", () => {
 
     const loaded = loadMap(raw);
     expect(loaded.readOnly).toBe(false);
-    expect(loaded.doc.version).toBe(CURRENT_VERSION);
-    expect(loaded.doc.minor).toBe(4);
-    expect(loaded.doc.minor).toBeGreaterThan(CURRENT_MINOR);
+    expect(loaded.doc.version).toBe("1.4");
+    expect(loaded.doc.version).not.toBe(CURRENT_FORMAT);
+    expect(loaded.warnings.map((issue) => issue.message)).toContain(
+      "Made with a newer version; some features may not show",
+    );
     const session = MapSession.load(raw);
     session.dispatch({
       type: "editText",
@@ -186,7 +208,7 @@ describe("migrations", () => {
       text: "# Heavy rain\nStill the same map.",
     });
     const saved = JSON.parse(serialize(session.doc)) as Record<string, unknown>;
-    expect(saved.minor).toBe(4);
+    expect(saved.version).toBe("1.4");
     expect(saved.reviewNote).toEqual({ keep: true });
     expect((saved.nodes as Record<string, Record<string, unknown>>)["n-flood"].glow).toBe("soft");
     expect(

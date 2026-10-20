@@ -1,4 +1,5 @@
 import type { Vec3 } from "../core/types";
+import { spatialNavConfig } from "./spatialNav.config";
 
 export type ArrowDirection = "left" | "right" | "up" | "down";
 
@@ -13,37 +14,10 @@ export interface ScreenPoint {
 export interface SpatialCandidate {
   id: string;
   screen: ScreenPoint;
-  /** True when this node shares a link with the selection. */
+  world: Vec3;
+  /** True when a visible link joins this node to the selection. Hidden types do not count. */
   linked?: boolean;
 }
-
-export const SPATIAL_CONE_DEG = 60;
-export const SPATIAL_WIDE_DEG = 90;
-
-/**
- * One score, lowest wins. Every term lives here so the ranking can be tuned
- * without a second rejection rule.
- * Angle and screen distance pull toward the arrow. Depth is strong enough that
- * a far node sitting on the selection loses to a nearer one. Link is a bonus
- * (a multiplier below 1) for a node directly connected to the selection.
- */
-export interface SpatialWeights {
-  angle: number;
-  screen: number;
-  depth: number;
-  /** World units that count as one step of the depth penalty. */
-  depthStep: number;
-  /** Score multiplier for a node linked to the selection. */
-  link: number;
-}
-
-export const SPATIAL_WEIGHTS: SpatialWeights = {
-  angle: 5,
-  screen: 1,
-  depth: 3,
-  depthStep: 8,
-  link: 0.38,
-};
 
 const DIRECTION: Record<ArrowDirection, { x: number; y: number }> = {
   left: { x: -1, y: 0 },
@@ -62,14 +36,15 @@ const OPPOSITE: Record<ArrowDirection, ArrowDirection> = {
 export interface SpatialNavInput {
   currentId: string;
   current: ScreenPoint;
+  currentWorld: Vec3;
   candidates: SpatialCandidate[];
   direction: ArrowDirection;
   /** The node we arrived from, when the last move was also spatial. */
   previousId?: string | null;
   previousDirection?: ArrowDirection | null;
-  coneDeg?: number;
-  widenDeg?: number;
-  weights?: Partial<SpatialWeights>;
+  viewport: { width: number; height: number };
+  /** Median nearest-neighbour distance. Normalises the 3D term. */
+  typicalSpacing: number;
 }
 
 export interface SpatialNavResult {
@@ -87,36 +62,66 @@ function angleBetween(dx: number, dy: number, direction: ArrowDirection): number
   return Math.acos(Math.min(1, Math.max(-1, dot)));
 }
 
-function resolveWeights(override?: Partial<SpatialWeights>): SpatialWeights {
-  return { ...SPATIAL_WEIGHTS, ...override };
+export function viewportDiagonal(viewport: { width: number; height: number }): number {
+  return Math.hypot(viewport.width, viewport.height);
 }
 
-/** Lowest score wins. The 60° denominator stays put when the cone widens to 90°. */
-export function scoreSpatialCandidate(
-  current: ScreenPoint,
-  candidate: SpatialCandidate,
-  theta: number,
-  weights: SpatialWeights = SPATIAL_WEIGHTS,
-): number {
-  const dx = candidate.screen.x - current.x;
-  const dy = candidate.screen.y - current.y;
-  const distance = Math.hypot(dx, dy);
-  const coneRad = (SPATIAL_CONE_DEG * Math.PI) / 180;
-  const alignment = 1 + weights.angle * (theta / coneRad) ** 2;
-  const depthGap = Math.abs(candidate.screen.depth - current.depth);
-  const depthFactor = 1 + weights.depth * (depthGap / weights.depthStep);
-  const linkFactor = candidate.linked ? weights.link : 1;
-  return distance * weights.screen * alignment * depthFactor * linkFactor;
+/** Median nearest-neighbour distance. One node, or a pile on one point, uses 1. */
+export function typicalSpacing(points: readonly Vec3[]): number {
+  if (points.length < 2) return 1;
+  const nearest: number[] = [];
+  for (let i = 0; i < points.length; i += 1) {
+    let best = Infinity;
+    for (let j = 0; j < points.length; j += 1) {
+      if (i === j) continue;
+      const distance = Math.hypot(
+        points[i].x - points[j].x,
+        points[i].y - points[j].y,
+        points[i].z - points[j].z,
+      );
+      if (distance < best) best = distance;
+    }
+    if (Number.isFinite(best) && best > 1e-6) nearest.push(best);
+  }
+  if (nearest.length === 0) return 1;
+  nearest.sort((a, b) => a - b);
+  const mid = Math.floor((nearest.length - 1) / 2);
+  return nearest.length % 2 === 1 ? nearest[mid] : (nearest[mid] + nearest[mid + 1]) / 2;
 }
 
 /**
- * Screen-space cone scoring. Lowest score wins. If the cone is empty it widens
- * once from ±60° to ±90°. The opposite arrow returns to the node we just left.
+ * Section 6.3 score. Lower is better.
+ * `score = wAngle·(θ/θmax)² + wScreen·(screenDist / viewportDiagonal) + wDepth·(dist3D / typicalSpacing) − wLink·[linked]`
+ */
+export function spatialScore(input: {
+  theta: number;
+  thetaMax: number;
+  screenDist: number;
+  viewportDiagonal: number;
+  dist3D: number;
+  typicalSpacing: number;
+  linked: boolean;
+}): number {
+  const { wAngle, wScreen, wDepth, wLink } = spatialNavConfig;
+  const spacing = Math.max(input.typicalSpacing, 1e-6);
+  const diagonal = Math.max(input.viewportDiagonal, 1);
+  const thetaMax = Math.max(input.thetaMax, 1e-6);
+  return (
+    wAngle * (input.theta / thetaMax) ** 2 +
+    wScreen * (input.screenDist / diagonal) +
+    wDepth * (input.dist3D / spacing) -
+    (input.linked ? wLink : 0)
+  );
+}
+
+/**
+ * Screen-space cone, then one score. If the cone is empty it widens once
+ * from the config half-angle to the fallback cone. The opposite arrow returns
+ * to the node we just left.
  */
 export function chooseSpatialTarget(input: SpatialNavInput): SpatialNavResult {
-  const coneDeg = input.coneDeg ?? SPATIAL_CONE_DEG;
-  const widenDeg = input.widenDeg ?? SPATIAL_WIDE_DEG;
-  const weights = resolveWeights(input.weights);
+  const coneDeg = spatialNavConfig.coneHalfAngleDeg;
+  const widenDeg = spatialNavConfig.fallbackConeDeg;
 
   if (
     input.previousId &&
@@ -127,15 +132,16 @@ export function chooseSpatialTarget(input: SpatialNavInput): SpatialNavResult {
     return { nextId: input.previousId, bumped: false, widened: false, reversed: true };
   }
 
-  const picked = pickCone(input, coneDeg, weights);
+  const picked = pickCone(input, coneDeg);
   if (picked) return { nextId: picked, bumped: false, widened: false, reversed: false };
-  const wide = pickCone(input, widenDeg, weights);
+  const wide = pickCone(input, widenDeg);
   if (wide) return { nextId: wide, bumped: false, widened: true, reversed: false };
   return { nextId: null, bumped: true, widened: true, reversed: false };
 }
 
-function pickCone(input: SpatialNavInput, coneDeg: number, weights: SpatialWeights): string | null {
+function pickCone(input: SpatialNavInput, coneDeg: number): string | null {
   const coneRad = (coneDeg * Math.PI) / 180;
+  const diagonal = viewportDiagonal(input.viewport);
   let bestId: string | null = null;
   let bestScore = Infinity;
   for (const candidate of input.candidates) {
@@ -146,7 +152,19 @@ function pickCone(input: SpatialNavInput, coneDeg: number, weights: SpatialWeigh
     if (distance < 1) continue;
     const theta = angleBetween(dx, dy, input.direction);
     if (theta > coneRad + 1e-8) continue;
-    const score = scoreSpatialCandidate(input.current, candidate, theta, weights);
+    const score = spatialScore({
+      theta,
+      thetaMax: coneRad,
+      screenDist: distance,
+      viewportDiagonal: diagonal,
+      dist3D: Math.hypot(
+        candidate.world.x - input.currentWorld.x,
+        candidate.world.y - input.currentWorld.y,
+        candidate.world.z - input.currentWorld.z,
+      ),
+      typicalSpacing: input.typicalSpacing,
+      linked: candidate.linked === true,
+    });
     if (score < bestScore - 1e-6 || (Math.abs(score - bestScore) <= 1e-6 && (bestId === null || candidate.id < bestId))) {
       bestScore = score;
       bestId = candidate.id;
@@ -157,28 +175,66 @@ function pickCone(input: SpatialNavInput, coneDeg: number, weights: SpatialWeigh
 
 export type DepthSense = "closer" | "further";
 
+export interface DepthNavInput {
+  current: ScreenPoint;
+  currentWorld: Vec3;
+  cameraPosition: Vec3;
+  candidates: SpatialCandidate[];
+  sense: DepthSense;
+  viewport: { width: number; height: number };
+  typicalSpacing: number;
+}
+
 /**
- * Mod+arrow depth step: the next node that is nearer or farther and close on screen.
+ * Mod+arrow uses the same score. θ is how far the candidate sits off the line
+ * of sight through the selection. Candidates must be nearer or farther; there
+ * is no second depth rule.
  */
-export function chooseDepthTarget(
-  current: ScreenPoint,
-  candidates: SpatialCandidate[],
-  sense: DepthSense,
-): string | null {
+export function chooseDepthTarget(input: DepthNavInput): string | null {
+  const thetaMax = (spatialNavConfig.coneHalfAngleDeg * Math.PI) / 180;
+  const diagonal = viewportDiagonal(input.viewport);
   let bestId: string | null = null;
   let bestScore = Infinity;
-  for (const candidate of candidates) {
+  for (const candidate of input.candidates) {
     const delta =
-      sense === "closer" ? current.depth - candidate.screen.depth : candidate.screen.depth - current.depth;
+      input.sense === "closer"
+        ? input.current.depth - candidate.screen.depth
+        : candidate.screen.depth - input.current.depth;
     if (delta < 0.05) continue;
-    const screenDist = Math.hypot(candidate.screen.x - current.x, candidate.screen.y - current.y);
-    const score = screenDist + delta * 8;
-    if (score < bestScore) {
+    const screenDist = Math.hypot(candidate.screen.x - input.current.x, candidate.screen.y - input.current.y);
+    const score = spatialScore({
+      theta: angleOffSight(input.cameraPosition, input.currentWorld, candidate.world),
+      thetaMax,
+      screenDist,
+      viewportDiagonal: diagonal,
+      dist3D: Math.hypot(
+        candidate.world.x - input.currentWorld.x,
+        candidate.world.y - input.currentWorld.y,
+        candidate.world.z - input.currentWorld.z,
+      ),
+      typicalSpacing: input.typicalSpacing,
+      linked: candidate.linked === true,
+    });
+    if (score < bestScore - 1e-6 || (Math.abs(score - bestScore) <= 1e-6 && (bestId === null || candidate.id < bestId))) {
       bestScore = score;
       bestId = candidate.id;
     }
   }
   return bestId;
+}
+
+function angleOffSight(camera: Vec3, current: Vec3, candidate: Vec3): number {
+  const ax = current.x - camera.x;
+  const ay = current.y - camera.y;
+  const az = current.z - camera.z;
+  const bx = candidate.x - camera.x;
+  const by = candidate.y - camera.y;
+  const bz = candidate.z - camera.z;
+  const al = Math.hypot(ax, ay, az);
+  const bl = Math.hypot(bx, by, bz);
+  if (al < 1e-8 || bl < 1e-8) return Math.PI;
+  const dot = (ax * bx + ay * by + az * bz) / (al * bl);
+  return Math.acos(Math.min(1, Math.max(-1, dot)));
 }
 
 export interface CameraFrame {

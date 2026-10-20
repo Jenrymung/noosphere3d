@@ -1,6 +1,6 @@
 import { ulid } from "ulid";
 import { starterLinkTypes } from "./starter";
-import { APP_VERSION, FORMAT, CURRENT_VERSION, type MapDocument } from "./types";
+import { APP_VERSION, FORMAT, CURRENT_FORMAT, type MapDocument } from "./types";
 
 export function createId(): string {
   return ulid();
@@ -17,7 +17,7 @@ export function createEmptyMap(options?: CreateMapOptions): MapDocument {
   const now = options?.now ?? new Date().toISOString();
   return {
     format: FORMAT,
-    version: CURRENT_VERSION,
+    version: CURRENT_FORMAT,
     id: options?.id ?? createId(),
     meta: {
       title: options?.title ?? "Untitled map",

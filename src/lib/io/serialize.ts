@@ -4,7 +4,6 @@ import type { MapDocument } from "../core/types";
 const TOP_KEYS = [
   "format",
   "version",
-  "minor",
   "id",
   "meta",
   "settings",
@@ -167,7 +166,6 @@ export function toCanonical(doc: MapDocument): Record<string, unknown> {
       ...asRecord(doc),
       format: doc.format,
       version: doc.version,
-      minor: doc.minor != null && doc.minor > 0 ? doc.minor : undefined,
       id: doc.id,
       meta: meta && Object.keys(meta).length > 0 ? meta : undefined,
       settings: settings && Object.keys(settings).length > 0 ? settings : undefined,

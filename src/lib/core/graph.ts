@@ -106,6 +106,19 @@ export function neighbours(doc: MapDocument, index: LinkIndex, nodeId: string): 
   return found;
 }
 
+/** Neighbours joined by a link whose type is not hidden. Self-links are skipped. */
+export function visibleNeighbourIds(doc: MapDocument, index: LinkIndex, nodeId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const item of neighbours(doc, index, nodeId)) {
+    if (item.role === "self") continue;
+    const link = doc.links[item.linkId];
+    if (!link) continue;
+    if (doc.view?.linkTypeFilters?.[link.typeId] === "hidden") continue;
+    ids.add(item.nodeId);
+  }
+  return ids;
+}
+
 export interface FollowHit {
   linkId: string;
   nodeId: string;

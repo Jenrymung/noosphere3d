@@ -1,4 +1,4 @@
-import { CURRENT_VERSION, type Issue, type MapDocument } from "../core/types";
+import type { Issue, MapDocument } from "../core/types";
 import { repairDocument } from "./integrity";
 import { migrateToCurrent } from "./migrate";
 import { MapLoadError, assertMapSchema } from "./schema";
@@ -20,18 +20,23 @@ export interface LoadedMap {
 export function loadMap(input: unknown): LoadedMap {
   const migrated = migrateToCurrent(input);
   if (migrated.newerMajor) {
-    throw new MapLoadError(
-      `This map was made with a newer version (v${migrated.from}). It was not modified.`,
-    );
+    throw new MapLoadError("This map was made with a newer version of the app. Please update to open it.");
   }
   const draft = structuredClone(migrated.value) as MapDocument;
   const warnings = repairDocument(draft);
+  if (migrated.newerMinor) {
+    warnings.push({
+      level: "warning",
+      code: "newer-minor",
+      message: "Made with a newer version; some features may not show",
+    });
+  }
   assertMapSchema(draft);
   return {
     doc: draft,
     warnings,
     readOnly: false,
-    migratedFrom: migrated.from < CURRENT_VERSION ? migrated.from : null,
+    migratedFrom: migrated.applied.length > 0 ? migrated.from : null,
     migrations: migrated.applied,
   };
 }
