@@ -13,6 +13,8 @@ import { linkLabel, nodeHasBody, nodeTitle, wrapTitle } from "../core/title";
 import type { Link, MapDocument, Vec3 } from "../core/types";
 import { cameraFollowAction, cameraMoveMs } from "../input/cameraFollow";
 import { cycleLink, visibleLinkIds } from "../input/cycle";
+import { linkOriginOnSelect, stepEscape } from "../input/escape";
+import { GRAB_SNAP, GrabOperator } from "../input/grab";
 import { NavHistory } from "../input/navHistory";
 import {
   chooseDepthTarget,
@@ -22,6 +24,7 @@ import {
   type SpatialCandidate,
 } from "../input/spatial";
 import { ViewOperator, type CameraPose } from "../input/viewOperator";
+import { MIN_ARROW_PX, arrowProjectChunk } from "./arrowScale";
 import { fanSlots, iconRadius, routeLink } from "./route";
 
 export type LabelMode = "sdf" | "css2d" | "off";
@@ -38,14 +41,14 @@ export interface HudSnapshot {
   density: LabelDensity;
   selectedId: string | null;
   selectedLinkId: string | null;
-  selectionKind: "node" | "link";
+  selectionKind: "node" | "link" | "none";
   selectedTitle: string;
   neighbours: number;
   message: string;
   ready: boolean;
   status: string;
   prepMs: number | null;
-  operator: "" | "view";
+  operator: "" | "view" | "grab";
 }
 
 export interface BenchRow {
@@ -58,10 +61,46 @@ export interface BenchRow {
   prepMs: number | null;
 }
 
+export interface SceneHooks {
+  isOverlayFocused?: () => boolean;
+  /** Return true when the page consumed Esc (edit or reader). */
+  handleEscape?: () => boolean;
+  openReader?: (target: { kind: "node" | "link"; id: string }) => void;
+  editDirect?: () => void;
+  createLinked?: () => void;
+  createUnlinked?: () => void;
+  deleteSelection?: () => void;
+  undo?: () => void;
+  redo?: () => void;
+  togglePin?: () => void;
+  commitMove?: (id: string, position: Vec3) => void;
+}
+
+export interface LoadOptions {
+  keepCamera?: boolean;
+  preserveSelection?: boolean;
+}
+
+export interface PlacementContext {
+  anchor: Vec3;
+  existing: Vec3[];
+  neighbours: Vec3[];
+  forward: Vec3;
+  prefer?: Vec3;
+}
+
 export interface MindMapScene {
   setLabelMode(mode: LabelMode): void;
   setDensity(density: LabelDensity): void;
-  load(doc: MapDocument): void;
+  load(doc: MapDocument, options?: LoadOptions): void;
+  sync(doc: MapDocument, kind: "text" | "structure"): void;
+  selectNode(id: string | null): void;
+  selectLink(id: string): void;
+  applySelection(selection: { nodeId: string | null; linkId: string | null }): void;
+  placementContext(anchorId: string | null): PlacementContext;
+  anchorNodeId(): string | null;
+  focusCanvas(): void;
+  flash(message: string): void;
   focus(): void;
   frameAll(): void;
   setViewDistance(distance: number): void;
@@ -69,6 +108,7 @@ export interface MindMapScene {
   benchCase(mode: LabelMode, density: LabelDensity, frame?: boolean): Promise<BenchRow>;
   getHud(): HudSnapshot;
   getPose(): { position: Vec3; target: Vec3 };
+  getSelection(): { nodeId: string | null; linkId: string | null; linkOriginId: string | null };
   dispose(): void;
 }
 
@@ -92,10 +132,12 @@ export function createMindMapScene(
   doc: MapDocument,
   onHud: (hud: HudSnapshot) => void,
   onToggleMap: () => void,
+  hooks: SceneHooks = {},
 ): MindMapScene {
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const canvas = document.createElement("canvas");
   canvas.className = "scene-canvas";
+  canvas.tabIndex = 0;
   host.appendChild(canvas);
 
   const renderer = new THREE.WebGLRenderer({
@@ -146,6 +188,9 @@ export function createMindMapScene(
   let iconMesh: THREE.Mesh | null = null;
   let colorAttr: THREE.InstancedBufferAttribute | null = null;
   let scaleAttr: THREE.InstancedBufferAttribute | null = null;
+  let offsetAttr: THREE.InstancedBufferAttribute | null = null;
+  let pageAttr: THREE.InstancedBufferAttribute | null = null;
+  const arrowShaders: { uniforms: Record<string, { value: number }> }[] = [];
   const linkObjects: THREE.Object3D[] = [];
   let batch: BatchedText | null = null;
   let labelMode: LabelMode = "sdf";
@@ -169,7 +214,12 @@ export function createMindMapScene(
   let autoOrbit = 0;
   let pointer: { x: number; y: number; moved: boolean } | null = null;
   let selectedLinkId: string | null = null;
+  let linkOriginId: string | null = null;
   let hoverId: string | null = null;
+  let grab: GrabOperator | null = null;
+  let grabId: string | null = null;
+  let loadGen = 0;
+  let linkRebuildQueued = false;
   let navHistory = new NavHistory();
   let viewOperator: ViewOperator | null = null;
   let highlight: Line2 | null = null;
@@ -197,27 +247,38 @@ export function createMindMapScene(
     updateIconUniforms();
   }
 
-  function clearWorld() {
-    if (iconMesh) {
-      scene.remove(iconMesh);
-      iconGeo?.dispose();
-      iconMat?.dispose();
-      iconMesh = null;
-    }
+  function disposeLinks() {
     for (const object of linkObjects) {
       scene.remove(object);
-      const mesh = object as LineSegments2 & { geometry: THREE.BufferGeometry; material: THREE.Material };
+      const mesh = object as THREE.Object3D & { geometry?: THREE.BufferGeometry; material?: THREE.Material | THREE.Material[] };
       mesh.geometry?.dispose();
-      mesh.material?.dispose?.();
+      const material = mesh.material;
+      if (Array.isArray(material)) material.forEach((item) => item.dispose());
+      else material?.dispose();
     }
     linkObjects.length = 0;
+    arrowShaders.length = 0;
+    linkViews = [];
     if (highlight) {
       scene.remove(highlight);
       highlight.geometry.dispose();
       (highlight.material as THREE.Material).dispose();
       highlight = null;
     }
-    linkViews = [];
+  }
+
+  function clearWorld() {
+    if (iconMesh) {
+      scene.remove(iconMesh);
+      iconGeo?.dispose();
+      iconMat?.dispose();
+      iconMesh = null;
+      offsetAttr = null;
+      pageAttr = null;
+      colorAttr = null;
+      scaleAttr = null;
+    }
+    disposeLinks();
     if (batch) {
       scene.remove(batch);
       batch.dispose();
@@ -232,12 +293,18 @@ export function createMindMapScene(
     nodeIndex = new Map();
   }
 
-  function load(next: MapDocument) {
+  function load(next: MapDocument, options?: LoadOptions) {
+    const keepSelection = options?.preserveSelection === true;
+    const previousNode = selectedId;
+    const previousLink = selectedLinkId;
+    const previousOrigin = linkOriginId;
+    if (viewOperator) endView(false);
+    grab = null;
+    grabId = null;
+    controls.enabled = true;
     currentDoc = next;
     linkIndex = LinkIndex.from(next);
-    if (viewOperator) endView(false);
     clearWorld();
-    selectedLinkId = null;
     hoverId = null;
     ready = false;
     prepMs = null;
@@ -245,35 +312,48 @@ export function createMindMapScene(
     buildNodes(next);
     buildLinks(next);
     spacing = typicalSpacing(nodes.map((node) => node.position));
-    selectedId = next.nodes["n-flood"]
-      ? "n-flood"
-      : next.nodes["s2-3-3-2"]
-        ? "s2-3-3-2"
-        : (Object.keys(next.nodes)[0] ?? null);
-    navHistory = new NavHistory();
-    if (selectedId) navHistory.visit(selectedId);
+    if (keepSelection) {
+      selectedId = previousNode && next.nodes[previousNode] ? previousNode : null;
+      selectedLinkId = previousLink && next.links[previousLink] ? previousLink : null;
+      linkOriginId = previousOrigin && next.nodes[previousOrigin] ? previousOrigin : null;
+      if (!selectedLinkId) linkOriginId = null;
+    } else {
+      selectedLinkId = null;
+      linkOriginId = null;
+      selectedId = next.nodes["n-flood"]
+        ? "n-flood"
+        : next.nodes["s2-3-3-2"]
+          ? "s2-3-3-2"
+          : (Object.keys(next.nodes)[0] ?? null);
+      navHistory = new NavHistory();
+      if (selectedId) navHistory.visit(selectedId);
+    }
     rememberNeighbours();
     applySelectionVisual();
     updateHighlight();
-    if (next.view?.camera) {
-      camera.position.set(next.view.camera.position.x, next.view.camera.position.y, next.view.camera.position.z);
-      controls.target.set(next.view.camera.target.x, next.view.camera.target.y, next.view.camera.target.z);
-      if (next.view.camera.fov) camera.fov = next.view.camera.fov;
-      camera.updateProjectionMatrix();
-      updateIconUniforms();
-    } else if (selectedId && next.nodes[selectedId]) {
-      const position = next.nodes[selectedId].position;
-      controls.target.set(position.x, position.y, position.z);
-      camera.position.set(position.x + 7, position.y + 5, position.z + 9);
-    } else {
-      frameAll(true);
+    if (!options?.keepCamera) {
+      if (next.view?.camera) {
+        camera.position.set(next.view.camera.position.x, next.view.camera.position.y, next.view.camera.position.z);
+        controls.target.set(next.view.camera.target.x, next.view.camera.target.y, next.view.camera.target.z);
+        if (next.view.camera.fov) camera.fov = next.view.camera.fov;
+        camera.updateProjectionMatrix();
+        updateIconUniforms();
+      } else if (selectedId && next.nodes[selectedId]) {
+        const position = next.nodes[selectedId].position;
+        controls.target.set(position.x, position.y, position.z);
+        camera.position.set(position.x + 7, position.y + 5, position.z + 9);
+      } else if (Object.keys(next.nodes).length > 0) {
+        frameAll(true);
+      }
     }
     status = labelMode === "off" ? "Icons only" : "Preparing labels";
     const started = performance.now();
+    const gen = ++loadGen;
     buildLabels(next, () => {
+      if (gen !== loadGen) return;
       prepMs = performance.now() - started;
       ready = true;
-      status = "Ready";
+      status = grab ? grabStatus() : "Ready";
       publish();
       requestRender();
     });
@@ -306,12 +386,14 @@ export function createMindMapScene(
       pages[index] = nodeHasBody(node) ? 0 : 1;
       nodeIndex.set(id, index);
     });
-    iconGeo.setAttribute("iOffset", new THREE.InstancedBufferAttribute(offsets, 3));
+    offsetAttr = new THREE.InstancedBufferAttribute(offsets, 3);
     colorAttr = new THREE.InstancedBufferAttribute(colors, 3);
     scaleAttr = new THREE.InstancedBufferAttribute(scales, 1);
+    pageAttr = new THREE.InstancedBufferAttribute(pages, 1);
+    iconGeo.setAttribute("iOffset", offsetAttr);
     iconGeo.setAttribute("iColor", colorAttr);
     iconGeo.setAttribute("iScale", scaleAttr);
-    iconGeo.setAttribute("iPage", new THREE.InstancedBufferAttribute(pages, 1));
+    iconGeo.setAttribute("iPage", pageAttr);
     iconGeo.instanceCount = count;
     iconMat = new THREE.ShaderMaterial({
       uniforms: {
@@ -383,8 +465,8 @@ export function createMindMapScene(
       const sourceNode = map.nodes[link.source];
       const targetNode = map.nodes[link.target];
       const routed = routeLink({
-        source: sourceNode.position,
-        target: targetNode.position,
+        source: livePosition(link.source),
+        target: livePosition(link.target),
         sourceRadius: iconRadius(sourceNode.style?.size),
         targetRadius: iconRadius(targetNode.style?.size),
         waypoints: sortedWaypoints(link).map((entry) => entry.waypoint.position),
@@ -467,6 +549,19 @@ export function createMindMapScene(
         opacity: map.view?.linkTypeFilters?.[typeId] === "dimmed" ? 0.28 : 0.95,
         depthWrite: false,
       });
+      material.customProgramCacheKey = () => "arrow-min-screen";
+      material.onBeforeCompile = (shader) => {
+        shader.uniforms.uTan = { value: Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) };
+        shader.uniforms.uHeight = { value: host.clientHeight || 1 };
+        shader.uniforms.uMinPx = { value: MIN_ARROW_PX };
+        shader.vertexShader = shader.vertexShader
+          .replace(
+            "#include <common>",
+            "#include <common>\nuniform float uTan;\nuniform float uHeight;\nuniform float uMinPx;",
+          )
+          .replace("#include <project_vertex>", arrowProjectChunk());
+        arrowShaders.push(shader);
+      };
       const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
       matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix));
       mesh.renderOrder = 1;
@@ -478,6 +573,12 @@ export function createMindMapScene(
 
   function buildLabels(map: MapDocument, done: () => void) {
     const ids = Object.keys(map.nodes).sort();
+    if (ids.length === 0) {
+      queueMicrotask(() => {
+        if (!disposed) done();
+      });
+      return;
+    }
     batch = new BatchedText();
     batch.renderOrder = 3;
     scene.add(batch);
@@ -568,6 +669,7 @@ export function createMindMapScene(
     if (fromArrow && selectedId && id && id !== selectedId) lastSpatial = { fromId: selectedId, direction: fromArrow };
     else if (!fromArrow) lastSpatial = null;
     selectedLinkId = null;
+    linkOriginId = null;
     selectedId = id;
     if (id && recordHistory) navHistory.visit(id);
     rememberNeighbours();
@@ -583,13 +685,10 @@ export function createMindMapScene(
   function selectLink(id: string) {
     const link = currentDoc.links[id];
     if (!link) return;
+    linkOriginId = linkOriginOnSelect({ linkId: selectedLinkId, nodeId: selectedId, linkOriginId });
     selectedLinkId = id;
-    if (selectedId !== link.source && selectedId !== link.target) {
-      selectedId = link.source;
-      navHistory.visit(link.source);
-      rememberNeighbours();
-    }
     lastSpatial = null;
+    rememberNeighbours();
     applySelectionVisual();
     updateHighlight();
     const view = linkViews.find((item) => item.id === id);
@@ -1096,8 +1195,10 @@ export function createMindMapScene(
   function onKey(event: KeyboardEvent) {
     if ((event.metaKey || event.ctrlKey) && event.altKey) return;
     const target = event.target as HTMLElement | null;
-    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+    if (target?.closest?.("[data-editor-root], .cm-editor")) return;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
     if (event.key === "Enter" && target?.tagName === "BUTTON") return;
+    const mod = event.metaKey || event.ctrlKey;
     if (viewOperator) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -1110,6 +1211,29 @@ export function createMindMapScene(
         return;
       }
     }
+    if (grab) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        endGrab(false);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        endGrab(true);
+        return;
+      }
+      if (event.code === "KeyX" || event.code === "KeyY" || event.code === "KeyZ") {
+        event.preventDefault();
+        grab.toggleAxis(event.code === "KeyX" ? "x" : event.code === "KeyY" ? "y" : "z");
+        previewGrab();
+        return;
+      }
+      if (event.key === "PageUp" || event.key === "PageDown") {
+        event.preventDefault();
+        nudgeGrabDepth(event.key === "PageUp" ? 1 : -1, event.shiftKey, mod);
+        return;
+      }
+    }
     const arrow =
       event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown";
     if (arrow) {
@@ -1117,6 +1241,10 @@ export function createMindMapScene(
       const direction = (
         { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" } as const
       )[event.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"];
+      if (grab) {
+        nudgeGrabArrow(direction, event.shiftKey, mod);
+        return;
+      }
       if (viewOperator) {
         if (event.shiftKey) viewOperator.panPixels(direction === "left" ? -28 : direction === "right" ? 28 : 0, direction === "up" ? -28 : direction === "down" ? 28 : 0);
         else viewOperator.orbitPixels(direction === "left" ? -28 : direction === "right" ? 28 : 0, direction === "up" ? -28 : direction === "down" ? 28 : 0);
@@ -1135,15 +1263,59 @@ export function createMindMapScene(
       return;
     }
     if (event.key === "Escape") {
-      if (selectedLinkId) {
-        event.preventDefault();
-        select(selectedId, null, false);
-      }
+      event.preventDefault();
+      if (hooks.handleEscape?.()) return;
+      const step = stepEscape({
+        panel: "navigate",
+        editFromReader: false,
+        pinned: true,
+        nodeId: selectedId,
+        linkId: selectedLinkId,
+        linkOriginId,
+      });
+      if (step.kind === "return-to-node") {
+        if (currentDoc.nodes[step.nodeId]) select(step.nodeId, null);
+        else select(null, null, false);
+      } else if (step.kind === "clear-selection") select(null, null, false);
+      return;
+    }
+    if (mod && event.code === "KeyZ" && !event.altKey) {
+      event.preventDefault();
+      if (event.shiftKey) hooks.redo?.();
+      else hooks.undo?.();
+      return;
+    }
+    if (mod && event.code === "KeyY" && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      hooks.redo?.();
+      return;
+    }
+    if (mod && event.code === "Backslash") {
+      event.preventDefault();
+      hooks.togglePin?.();
+      return;
+    }
+    if (event.key === "Enter" && mod) {
+      event.preventDefault();
+      hooks.createUnlinked?.();
+      return;
+    }
+    if (event.key === "Tab" && !mod && !event.altKey) {
+      event.preventDefault();
+      if (event.shiftKey) note("The link-type picker arrives in a later phase");
+      else hooks.createLinked?.();
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      note("The reader opens in a later phase");
+      const target = openTarget();
+      if (target) hooks.openReader?.(target);
+      else note("Select a node or link, or press Mod+Enter to start one");
+      return;
+    }
+    if ((event.key === "Delete" || event.key === "Backspace") && !mod && !event.altKey) {
+      event.preventDefault();
+      hooks.deleteSelection?.();
       return;
     }
     if (event.code === "Minus" || event.code === "NumpadSubtract") {
@@ -1165,9 +1337,15 @@ export function createMindMapScene(
     } else if (event.code === "Home") {
       event.preventDefault();
       frameAll();
-    } else if (event.code === "KeyV" && !event.repeat && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    }     else if (event.code === "KeyV" && !event.repeat && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       beginView();
+    } else if (event.code === "KeyG" && !event.repeat && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      beginGrab();
+    } else if (event.code === "KeyE" && !event.repeat && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      hooks.editDirect?.();
     } else if (event.code === "KeyB" && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       goHistory(event.shiftKey);
@@ -1257,9 +1435,16 @@ export function createMindMapScene(
   }
 
   function updateIconUniforms() {
-    if (!iconMat) return;
-    iconMat.uniforms.uTan.value = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
-    iconMat.uniforms.uHeight.value = host.clientHeight || 1;
+    const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const height = host.clientHeight || 1;
+    if (iconMat) {
+      iconMat.uniforms.uTan.value = tan;
+      iconMat.uniforms.uHeight.value = height;
+    }
+    for (const shader of arrowShaders) {
+      if (shader.uniforms.uTan) shader.uniforms.uTan.value = tan;
+      if (shader.uniforms.uHeight) shader.uniforms.uHeight.value = height;
+    }
   }
 
   function projectToScreen(position: THREE.Vector3, rect: DOMRect): { x: number; y: number } | null {
@@ -1305,14 +1490,14 @@ export function createMindMapScene(
       density,
       selectedId,
       selectedLinkId,
-      selectionKind: selectedLinkId ? "link" : "node",
+      selectionKind: selectedLinkId ? "link" : selectedId ? "node" : "none",
       selectedTitle: linkTitle() ?? nodes.find((node) => node.id === selectedId)?.title ?? "Nothing selected",
       neighbours: neighbourIds.size,
       message: performance.now() < messageUntil ? message : "",
       ready,
       status,
       prepMs,
-      operator: viewOperator ? "view" : "",
+      operator: grab ? "grab" : viewOperator ? "view" : "",
     };
   }
 
@@ -1411,7 +1596,7 @@ export function createMindMapScene(
       orbitStep("right");
     }
     let controlsMoved = false;
-    if (!viewOperator) {
+    if (!viewOperator && !grab) {
       if (animating) zeroControlDeltas();
       controlsMoved = controls.update();
     }
@@ -1431,8 +1616,15 @@ export function createMindMapScene(
   }
 
   let lastTitleClick: { id: string; time: number } | null = null;
+  let lastLinkClick: { id: string; time: number } | null = null;
 
   function onPointerDown(event: PointerEvent) {
+    if (event.button === 0) canvas.focus();
+    if (grab && event.button === 2) {
+      event.preventDefault();
+      endGrab(false);
+      return;
+    }
     if (viewOperator && event.button === 2) {
       event.preventDefault();
       endView(false);
@@ -1441,6 +1633,11 @@ export function createMindMapScene(
     pointer = { x: event.clientX, y: event.clientY, moved: false };
   }
   function onPointerMove(event: PointerEvent) {
+    if (grab) {
+      if (event.movementX === 0 && event.movementY === 0) return;
+      moveGrabByMouse(event.movementX, event.movementY, event.shiftKey, event.ctrlKey || event.metaKey);
+      return;
+    }
     if (viewOperator) {
       if (event.shiftKey) viewOperator.panPixels(event.movementX, event.movementY);
       else if (event.ctrlKey || event.metaKey) viewOperator.dollyPixels(event.movementY);
@@ -1453,6 +1650,11 @@ export function createMindMapScene(
     hoverAt(event);
   }
   function onPointerUp(event: PointerEvent) {
+    if (grab && event.button === 0) {
+      endGrab(true);
+      pointer = null;
+      return;
+    }
     if (viewOperator && event.button === 0) {
       endView(true);
       pointer = null;
@@ -1467,24 +1669,263 @@ export function createMindMapScene(
         lastTitleClick = { id: hit.id, time: now };
       } else if (hit?.kind === "node-icon") {
         select(hit.id, null);
-        note("Selected. The reader opens from the icon in a later phase.");
+        hooks.openReader?.({ kind: "node", id: hit.id });
       } else if (hit && (hit.kind === "link-label" || hit.kind === "link-line")) {
         selectLink(hit.id);
+        if (hit.kind === "link-label") {
+          const now = performance.now();
+          if (lastLinkClick && lastLinkClick.id === hit.id && now - lastLinkClick.time < 450) {
+            hooks.openReader?.({ kind: "link", id: hit.id });
+          }
+          lastLinkClick = { id: hit.id, time: now };
+        }
       }
     }
     pointer = null;
   }
   function onContextMenu(event: Event) {
     event.preventDefault();
-    if (viewOperator) endView(false);
+    if (grab) endGrab(false);
+    else if (viewOperator) endView(false);
   }
   function onWheel(event: WheelEvent) {
+    if (grab) {
+      event.preventDefault();
+      event.stopPropagation();
+      nudgeGrabDepth(event.deltaY < 0 ? 1 : -1, event.shiftKey, event.ctrlKey || event.metaKey);
+      return;
+    }
     if (!viewOperator) return;
     event.preventDefault();
     event.stopPropagation();
     viewOperator.dollyPixels(event.deltaY);
     applyPose(viewOperator.current);
     requestRender();
+  }
+
+  function openTarget(): { kind: "node" | "link"; id: string } | null {
+    if (selectedLinkId && currentDoc.links[selectedLinkId]) return { kind: "link", id: selectedLinkId };
+    if (selectedId && currentDoc.nodes[selectedId]) return { kind: "node", id: selectedId };
+    return null;
+  }
+
+  function anchorNodeId(): string | null {
+    if (selectedLinkId) return linkOriginId && currentDoc.nodes[linkOriginId] ? linkOriginId : null;
+    return selectedId && currentDoc.nodes[selectedId] ? selectedId : null;
+  }
+
+  function placementContext(anchorId: string | null): PlacementContext {
+    camera.updateMatrixWorld();
+    const look = new THREE.Vector3();
+    camera.getWorldDirection(look);
+    const forwardVec = { x: look.x, y: look.y, z: look.z };
+    const existing = Object.values(currentDoc.nodes).map((node) => ({ ...node.position }));
+    if (!anchorId || !currentDoc.nodes[anchorId]) {
+      const distance = Math.max(6, camera.position.distanceTo(controls.target) * 0.35);
+      const anchor = camera.position.clone().addScaledVector(look, distance);
+      return {
+        anchor: { x: anchor.x, y: anchor.y, z: anchor.z },
+        existing,
+        neighbours: [],
+        forward: forwardVec,
+        prefer: forwardVec,
+      };
+    }
+    const linked = neighbours(currentDoc, linkIndex, anchorId)
+      .map((item) => currentDoc.nodes[item.nodeId]?.position)
+      .filter((position): position is Vec3 => Boolean(position))
+      .map((position) => ({ ...position }));
+    return {
+      anchor: { ...currentDoc.nodes[anchorId].position },
+      existing,
+      neighbours: linked,
+      forward: forwardVec,
+    };
+  }
+
+  function applySelection(selection: { nodeId: string | null; linkId: string | null }) {
+    if (selection.linkId && currentDoc.links[selection.linkId]) {
+      selectedId = selection.nodeId && currentDoc.nodes[selection.nodeId] ? selection.nodeId : null;
+      selectedLinkId = null;
+      linkOriginId = null;
+      selectLink(selection.linkId);
+      return;
+    }
+    select(selection.nodeId && currentDoc.nodes[selection.nodeId] ? selection.nodeId : null, null, false);
+  }
+
+  function sync(next: MapDocument, kind: "text" | "structure") {
+    if (kind === "text") {
+      currentDoc = next;
+      linkIndex = LinkIndex.from(next);
+      refreshText();
+      return;
+    }
+    load(next, { keepCamera: true, preserveSelection: true });
+  }
+
+  function refreshText() {
+    let batched = false;
+    for (const view of nodes) {
+      const node = currentDoc.nodes[view.id];
+      if (!node) continue;
+      const title = nodeTitle(node) || "Untitled";
+      const wrapped = wrapTitle(title);
+      const changed = view.title !== title || view.wrapped !== wrapped;
+      view.title = title;
+      view.wrapped = wrapped;
+      if (changed) {
+        view.text.text = wrapped;
+        view.card.textContent = wrapped;
+        batched = true;
+      }
+      const index = nodeIndex.get(view.id);
+      if (pageAttr && index != null) pageAttr.setX(index, nodeHasBody(node) ? 0 : 1);
+    }
+    if (pageAttr) pageAttr.needsUpdate = true;
+    for (const view of linkViews) {
+      const link = currentDoc.links[view.id];
+      if (!link) continue;
+      const label = linkLabel(link, currentDoc.linkTypes[link.typeId]);
+      view.title = label.title;
+      view.typeLine = label.typeLine;
+    }
+    if (batched && batch && density === "all") batch.sync();
+    applySelectionVisual();
+    publish();
+    requestRender();
+  }
+
+  function livePosition(id: string): Vec3 {
+    if (grab && grabId === id) return grab.position();
+    return currentDoc.nodes[id].position;
+  }
+
+  function queueRebuildLinks() {
+    if (linkRebuildQueued) return;
+    linkRebuildQueued = true;
+    requestAnimationFrame(() => {
+      linkRebuildQueued = false;
+      if (disposed) return;
+      disposeLinks();
+      buildLinks(currentDoc);
+      updateHighlight();
+      requestRender();
+    });
+  }
+
+  function writePosition(id: string, position: Vec3, rebuild: boolean) {
+    const view = nodes.find((item) => item.id === id);
+    if (view) {
+      view.position.set(position.x, position.y, position.z);
+      view.text.position.set(position.x, position.y + view.scale * 0.55 + 0.05, position.z);
+      view.css.position.set(position.x, position.y + view.scale * 0.55, position.z);
+    }
+    const index = nodeIndex.get(id);
+    if (offsetAttr && index != null) {
+      offsetAttr.setXYZ(index, position.x, position.y, position.z);
+      offsetAttr.needsUpdate = true;
+    }
+    if (selectedId === id && !selectedLinkId) ring.position.set(position.x, position.y, position.z);
+    if (rebuild) queueRebuildLinks();
+    requestRender();
+  }
+
+  function grabStatus(): string {
+    if (!grab) return "Ready";
+    const axis = grab.axis ? `${grab.axis.toUpperCase()} axis` : "plane";
+    const position = grab.position();
+    return `Grab · ${axis} · ${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)}`;
+  }
+
+  function previewGrab() {
+    if (!grab || !grabId) return;
+    writePosition(grabId, grab.position(), true);
+    status = grabStatus();
+    publish();
+  }
+
+  function beginGrab() {
+    if (viewOperator || hooks.isOverlayFocused?.()) return;
+    if (selectedLinkId || !selectedId || !currentDoc.nodes[selectedId]) {
+      note("Select a node to move");
+      return;
+    }
+    focusAnim = null;
+    zeroControlDeltas();
+    grabId = selectedId;
+    grab = new GrabOperator(currentDoc.nodes[selectedId].position);
+    controls.enabled = false;
+    status = grabStatus();
+    publish();
+    requestRender();
+  }
+
+  function endGrab(confirm: boolean) {
+    if (!grab || !grabId) return;
+    const id = grabId;
+    const origin = grab.cancel();
+    const next = confirm ? grab.confirm() : origin;
+    const moved = Math.hypot(next.x - origin.x, next.y - origin.y, next.z - origin.z) > 1e-4;
+    grab = null;
+    grabId = null;
+    controls.enabled = true;
+    zeroControlDeltas();
+    if (confirm && moved) hooks.commitMove?.(id, next);
+    else writePosition(id, origin, true);
+    status = "Ready";
+    note(confirm ? "Move kept" : "Move cancelled");
+    publish();
+  }
+
+  function cameraAxes() {
+    camera.updateMatrixWorld();
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+    const look = new THREE.Vector3();
+    camera.getWorldDirection(look);
+    return { right, up, look };
+  }
+
+  function nudgeGrabArrow(direction: ArrowDirection, large: boolean, snap: boolean) {
+    if (!grab) return;
+    const { right, up } = cameraAxes();
+    const step = large ? 0.75 : 0.18;
+    const delta = { x: 0, y: 0, z: 0 };
+    const basis = direction === "left" ? right.clone().multiplyScalar(-step) : direction === "right" ? right.clone().multiplyScalar(step) : direction === "up" ? up.clone().multiplyScalar(step) : up.clone().multiplyScalar(-step);
+    delta.x = basis.x;
+    delta.y = basis.y;
+    delta.z = basis.z;
+    grab.add(delta, { snap: snap ? GRAB_SNAP : null });
+    previewGrab();
+  }
+
+  function nudgeGrabDepth(sense: 1 | -1, precision: boolean, snap: boolean) {
+    if (!grab) return;
+    const { look } = cameraAxes();
+    const step = 0.4 * sense;
+    grab.add(
+      { x: look.x * step, y: look.y * step, z: look.z * step },
+      { precision, snap: snap ? GRAB_SNAP : null },
+    );
+    previewGrab();
+  }
+
+  function moveGrabByMouse(dx: number, dy: number, precision: boolean, snap: boolean) {
+    if (!grab || !grabId) return;
+    const { right, up } = cameraAxes();
+    const node = currentDoc.nodes[grabId];
+    const distance = Math.max(camera.position.distanceTo(node ? asVec(node.position) : controls.target), 2);
+    const scale = distance * 0.0015;
+    grab.add(
+      {
+        x: (right.x * dx - up.x * dy) * scale,
+        y: (right.y * dx - up.y * dy) * scale,
+        z: (right.z * dx - up.z * dy) * scale,
+      },
+      { precision, snap: snap ? GRAB_SNAP : null },
+    );
+    previewGrab();
   }
 
   resize();
@@ -1504,6 +1945,14 @@ export function createMindMapScene(
     setLabelMode,
     setDensity,
     load,
+    sync,
+    selectNode: (id: string | null) => select(id, null),
+    selectLink,
+    applySelection,
+    placementContext,
+    anchorNodeId,
+    focusCanvas: () => canvas.focus(),
+    flash: note,
     focus,
     frameAll: () => frameAll(false),
     setViewDistance,
@@ -1511,6 +1960,7 @@ export function createMindMapScene(
     benchCase,
     getHud,
     getPose,
+    getSelection: () => ({ nodeId: selectedId, linkId: selectedLinkId, linkOriginId }),
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);
