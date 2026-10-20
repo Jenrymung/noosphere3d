@@ -4,8 +4,25 @@
   import { createId } from "$lib/core/document";
   import { MapSession } from "$lib/core/session";
   import { linkLabel, nodeTitle } from "$lib/core/title";
-  import type { MapDocument, Vec3 } from "$lib/core/types";
+  import type { LinkTypeFilter, MapDocument, Vec3 } from "$lib/core/types";
   import ReaderPanel from "$lib/editor/ReaderPanel.svelte";
+  import type { TypeDraft } from "$lib/input/linkForm";
+  import { modEnterAction } from "$lib/input/modEnter";
+  import {
+    cycleTypeId,
+    cycleTypedLink,
+    deleteTypeCommands,
+    filterSummary,
+    followVisible,
+    freshType,
+    linkCommit,
+    shiftedOrder,
+    soloFilters,
+    toggleShownHidden,
+    typeIdForDigit,
+    typeRows,
+    withFilter,
+  } from "$lib/input/linkOps";
   import { urbanFloodingDocument } from "$lib/io/sampleMap";
   import {
     createMindMapScene,
@@ -16,6 +33,7 @@
   } from "$lib/scene/createScene";
   import { stressMap } from "$lib/scene/dummyMap";
   import { placeNode } from "$lib/scene/placement";
+  import LinkChrome from "$lib/ui/LinkChrome.svelte";
 
   type Target = { kind: "node" | "link"; id: string };
   type MapKind = "stress" | "sample" | "new";
@@ -60,6 +78,19 @@
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingText: string | null = null;
   let pendingTitle: string | null = null;
+  let linkMode = $state<{ sourceId: string; targetId: string | null; typeId: string | null } | null>(null);
+  let screen = $state<
+    | { name: "picker"; purpose: "new-link" | "shift-tab" | "retarget" }
+    | { name: "legend" }
+    | { name: "manager" }
+    | { name: "search" }
+    | { name: "follow" }
+    | null
+  >(null);
+  let followRows = $state<{ key: string; label: string; nodeId: string }[]>([]);
+  let skipPicker = $state(false);
+  let dimLonely = $state(false);
+  let activeTypeId = $state<string | null>(null);
 
   const canUndo = $derived.by(() => {
     revision;
@@ -70,6 +101,29 @@
     return session.history.canRedo;
   });
   const modeLabel = $derived(hud.labelMode === "sdf" ? "SDF" : hud.labelMode === "css2d" ? "CSS2D" : "Off");
+  const rows = $derived.by(() => {
+    revision;
+    return typeRows(session.doc);
+  });
+  const filterLabel = $derived.by(() => {
+    revision;
+    return filterSummary(session.doc.view?.linkTypeFilters);
+  });
+  const nodeChoices = $derived.by(() => {
+    revision;
+    return Object.entries(session.doc.nodes).map(([id, node]) => ({
+      id,
+      title: nodeTitle(node) || "Untitled",
+    }));
+  });
+  const defaultTypeId = $derived.by(() => {
+    revision;
+    return session.doc.settings.defaultLinkTypeId ?? rows[0]?.id ?? "relates-to";
+  });
+  const filters = $derived.by(() => {
+    revision;
+    return session.doc.view?.linkTypeFilters ?? {};
+  });
 
   function publish(next: HudSnapshot) {
     hud = next;
@@ -180,14 +234,23 @@
     panel = "edit";
   }
 
-  function commitNavigate() {
+  function commitToReader() {
     if (panel === "edit") leaveEdit();
+    shown = shown ?? currentTarget();
     editFromReader = false;
-    panel = pinned ? "read" : "closed";
-    focusScene();
+    panel = "read";
+    focusToken += 1;
   }
 
   function handleEscape() {
+    if (screen) {
+      screen = null;
+      return true;
+    }
+    if (linkMode) {
+      endLink();
+      return true;
+    }
     if (panel === "edit") {
       leaveEdit();
       if (editFromReader) {
@@ -262,6 +325,38 @@
     }
   }
 
+  function linkAppearanceChanged(previous: MapDocument, next: MapDocument) {
+    if (JSON.stringify(previous.linkTypes) !== JSON.stringify(next.linkTypes)) return true;
+    for (const id of Object.keys(previous.links)) {
+      const left = previous.links[id];
+      const right = next.links[id];
+      if (!left || !right) continue;
+      if (left.typeId !== right.typeId || left.source !== right.source || left.target !== right.target) return true;
+      if (JSON.stringify(left.waypoints ?? null) !== JSON.stringify(right.waypoints ?? null)) return true;
+    }
+    return false;
+  }
+
+  function appearanceKind(previous: MapDocument, next: MapDocument): "text" | "structure" | "links" {
+    if (!sameStructure(previous, next)) return "structure";
+    if (linkAppearanceChanged(previous, next)) return "links";
+    return "text";
+  }
+
+  function afterHistory() {
+    if (linkMode && !session.doc.nodes[linkMode.sourceId]) {
+      endLink();
+      if (screen?.name === "picker" || screen?.name === "search" || screen?.name === "follow") screen = null;
+    } else if (linkMode?.targetId && !session.doc.nodes[linkMode.targetId]) {
+      linkMode = { ...linkMode, targetId: null };
+      if (screen?.name === "picker" && screen.purpose === "new-link") screen = null;
+      refreshCursor();
+    }
+    const selected = session.selection.linkId;
+    const typeId = selected ? session.doc.links[selected]?.typeId : undefined;
+    if (typeId) activeTypeId = typeId;
+  }
+
   function undo() {
     if (panel === "edit") leaveEdit();
     const previous = session.doc;
@@ -269,10 +364,11 @@
       scene?.flash("Nothing to undo");
       return;
     }
-    const kind = sameStructure(previous, session.doc) ? "text" : "structure";
+    const kind = appearanceKind(previous, session.doc);
     bump();
     scene?.sync(session.doc, kind);
     scene?.applySelection(session.selection);
+    afterHistory();
     retargetPanel();
   }
 
@@ -283,14 +379,23 @@
       scene?.flash("Nothing to redo");
       return;
     }
-    const kind = sameStructure(previous, session.doc) ? "text" : "structure";
+    const kind = appearanceKind(previous, session.doc);
     bump();
     scene?.sync(session.doc, kind);
     scene?.applySelection(session.selection);
+    afterHistory();
     retargetPanel();
   }
 
-  function createLinked() {
+  function openNewNode(id: string) {
+    shown = { kind: "node", id };
+    editSeed = { text: "", title: "", placeholder: "Untitled" };
+    editToken += 1;
+    editFromReader = false;
+    panel = "edit";
+  }
+
+  function createLinkedOf(explicitType?: string) {
     if (panel === "edit") leaveEdit();
     const anchorId = scene?.anchorNodeId() ?? null;
     if (!anchorId || !session.doc.nodes[anchorId] || !scene) {
@@ -300,7 +405,12 @@
     const id = createId();
     const linkId = createId();
     const position = placeNode(scene.placementContext(anchorId));
-    const typeId = session.doc.linkTypes[lastTypeId] ? lastTypeId : (session.doc.settings.defaultLinkTypeId ?? "relates-to");
+    const typeId =
+      explicitType && session.doc.linkTypes[explicitType]
+        ? explicitType
+        : session.doc.linkTypes[lastTypeId]
+          ? lastTypeId
+          : (session.doc.settings.defaultLinkTypeId ?? "relates-to");
     const now = Date.now();
     const key = `tab:${id}`;
     try {
@@ -314,22 +424,21 @@
       return;
     }
     lastTypeId = typeId;
+    activeTypeId = typeId;
     bump();
     scene.sync(session.doc, "structure");
     scene.selectNode(id);
-    shown = { kind: "node", id };
-    editSeed = { text: "", title: "", placeholder: "Untitled" };
-    editToken += 1;
-    editFromReader = false;
-    panel = "edit";
+    openNewNode(id);
   }
 
-  function createUnlinked() {
-    if (panel === "edit") {
-      commitNavigate();
+  function onModEnter() {
+    if (linkMode || screen) return;
+    const action = modEnterAction({ panel, pinned, overlayFocused: overlayFocused() });
+    if (action.kind === "commit-to-reader") {
+      commitToReader();
       return;
     }
-    if (!scene) return;
+    if (action.kind !== "create-unlinked" || !scene) return;
     const id = createId();
     const position = placeNode(scene.placementContext(null));
     try {
@@ -341,11 +450,452 @@
     bump();
     scene.sync(session.doc, "structure");
     scene.selectNode(id);
-    shown = { kind: "node", id };
-    editSeed = { text: "", title: "", placeholder: "Untitled" };
-    editToken += 1;
+    openNewNode(id);
+  }
+
+  function endLink() {
+    linkMode = null;
+    scene?.setLinkMode(false);
+    scene?.setStatus("Ready");
+  }
+
+  function refreshCursor() {
+    if (!linkMode || !scene) {
+      scene?.setLinkCursor(null);
+      return;
+    }
+    const type = linkMode.typeId ? session.doc.linkTypes[linkMode.typeId] : undefined;
+    scene.setLinkCursor({
+      sourceId: linkMode.sourceId,
+      targetId: linkMode.targetId,
+      color: type?.color ?? "#9bb0c4",
+    });
+    const target = linkMode.targetId ? session.doc.nodes[linkMode.targetId] : undefined;
+    const targetTitle = target ? nodeTitle(target) || "Untitled" : "choose a target";
+    scene.setStatus(`Link · ${type?.name ?? "type on Enter"} · ${targetTitle}`);
+  }
+
+  function settleEdit() {
+    if (panel !== "edit") return;
+    leaveEdit();
     editFromReader = false;
-    panel = "edit";
+    panel = pinned ? "read" : "closed";
+    if (panel === "closed") focusScene();
+  }
+
+  function beginLink() {
+    settleEdit();
+    const sourceId = scene?.anchorNodeId() ?? null;
+    if (!sourceId || !session.doc.nodes[sourceId]) {
+      scene?.flash("Select a node to link from");
+      return;
+    }
+    linkMode = { sourceId, targetId: null, typeId: null };
+    scene?.setLinkMode(true);
+    refreshCursor();
+  }
+
+  function moveLinkTarget(direction: "left" | "right" | "up" | "down") {
+    if (!linkMode || !scene) return;
+    const from = linkMode.targetId ?? linkMode.sourceId;
+    const next = scene.spatialFrom(from, direction);
+    if (!next) return;
+    linkMode = { ...linkMode, targetId: next };
+    refreshCursor();
+  }
+
+  function prepick(digit: number) {
+    if (!linkMode) return;
+    const typeId = typeIdForDigit(session.doc, digit);
+    if (!typeId) {
+      scene?.flash("No type on that number");
+      return;
+    }
+    linkMode = { ...linkMode, typeId };
+    refreshCursor();
+  }
+
+  function createLink(typeId: string) {
+    if (!linkMode?.targetId || !scene) return;
+    const id = createId();
+    const source = linkMode.sourceId;
+    const target = linkMode.targetId;
+    try {
+      session.dispatch({ type: "addLink", id, link: { source, target, typeId, text: "" } });
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    lastTypeId = typeId;
+    activeTypeId = typeId;
+    endLink();
+    bump();
+    scene.sync(session.doc, "links");
+    scene.selectLink(id);
+    scene.flash(session.doc.linkTypes[typeId]?.name ?? "Link");
+  }
+
+  function confirmLink() {
+    if (!linkMode) return;
+    if (!linkMode.targetId) {
+      scene?.flash("Choose a target node");
+      return;
+    }
+    const fallback = session.doc.linkTypes[lastTypeId] ? lastTypeId : defaultTypeId;
+    const decision = linkCommit(linkMode.typeId, skipPicker, fallback);
+    if (decision.kind === "pick") screen = { name: "picker", purpose: "new-link" };
+    else createLink(decision.typeId);
+  }
+
+  function newLinkTarget() {
+    if (!linkMode || !scene) return;
+    const id = createId();
+    const position = placeNode(scene.placementContext(linkMode.sourceId));
+    try {
+      session.dispatch({ type: "addNode", id, node: { text: "", position } });
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    bump();
+    scene.sync(session.doc, "structure");
+    linkMode = { ...linkMode, targetId: id };
+    refreshCursor();
+  }
+
+  function beginShiftTab() {
+    settleEdit();
+    const anchorId = scene?.anchorNodeId() ?? null;
+    if (!anchorId || !session.doc.nodes[anchorId]) {
+      scene?.flash("Select a node, then Shift+Tab to link a new one");
+      return;
+    }
+    screen = { name: "picker", purpose: "shift-tab" };
+  }
+
+  function applyFilters(next: Record<string, LinkTypeFilter>) {
+    session.setLinkFilters(next);
+    bump();
+    scene?.sync(session.doc, "links");
+  }
+
+  function assignType(linkId: string, typeId: string, group?: { groupKey: string; now: number }) {
+    try {
+      session.dispatch({ type: "setLinkType", linkId, typeId }, group);
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    lastTypeId = typeId;
+    activeTypeId = typeId;
+    bump();
+    scene?.sync(session.doc, "links");
+    scene?.flash(session.doc.linkTypes[typeId]?.name ?? typeId);
+  }
+
+  function cycleSelectedType(delta: 1 | -1) {
+    const linkId = hud.selectedLinkId;
+    const link = linkId ? session.doc.links[linkId] : undefined;
+    if (!linkId || !link) {
+      scene?.flash("Select a link to change its type");
+      return;
+    }
+    const next = cycleTypeId(session.doc, link.typeId, delta);
+    if (!next) return;
+    assignType(linkId, next, { groupKey: `type-cycle:${linkId}`, now: Date.now() });
+  }
+
+  function reverseSelected() {
+    const linkId = hud.selectedLinkId;
+    if (!linkId || !session.doc.links[linkId]) {
+      scene?.flash("Select a link to reverse");
+      return;
+    }
+    try {
+      session.dispatch({ type: "reverseLink", linkId });
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    bump();
+    scene?.sync(session.doc, "links");
+    scene?.flash("Reversed");
+  }
+
+  function cycleTyped(delta: 1 | -1) {
+    const nodeId = scene?.anchorNodeId() ?? hud.selectedId;
+    if (!nodeId || !activeTypeId) {
+      scene?.flash("Select a link to choose a type");
+      return;
+    }
+    const next = cycleTypedLink(session.doc, session.index, nodeId, activeTypeId, hud.selectedLinkId, delta);
+    if (!next) scene?.flash("No visible links of that type");
+    else scene?.selectLink(next);
+  }
+
+  function beginFollow(sense: "forward" | "backward") {
+    const nodeId = scene?.anchorNodeId() ?? hud.selectedId;
+    if (!nodeId || !activeTypeId) {
+      scene?.flash(activeTypeId ? "Select a node to follow" : "Select a link to choose a type");
+      return;
+    }
+    const hits = followVisible(session.doc, session.index, nodeId, activeTypeId, sense);
+    if (hits.length === 0) {
+      scene?.flash("No link of that type that way");
+      return;
+    }
+    if (hits.length === 1) {
+      scene?.selectNode(hits[0].nodeId);
+      return;
+    }
+    followRows = hits.map((hit) => ({
+      key: hit.linkId,
+      nodeId: hit.nodeId,
+      label: nodeTitle(session.doc.nodes[hit.nodeId]) || "Untitled",
+    }));
+    screen = { name: "follow" };
+  }
+
+  function digitFrom(event: KeyboardEvent): number | null {
+    if (event.metaKey || event.ctrlKey) return null;
+    const match = /^(?:Digit|Numpad)([0-9])$/.exec(event.code);
+    return match ? Number(match[1]) : null;
+  }
+
+  function sceneKey(event: KeyboardEvent): boolean {
+    const mod = event.metaKey || event.ctrlKey;
+    const arrow =
+      event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown";
+    if (linkMode) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        endLink();
+        return true;
+      }
+      if (arrow && !event.shiftKey && !event.altKey && !mod) {
+        event.preventDefault();
+        const direction = (
+          { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" } as const
+        )[event.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"];
+        moveLinkTarget(direction);
+        return true;
+      }
+      if (event.key === "Enter" && !mod) {
+        event.preventDefault();
+        confirmLink();
+        return true;
+      }
+      if (event.code === "KeyN" && !mod && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        newLinkTarget();
+        return true;
+      }
+      if (event.key === "/" && !mod && !event.altKey) {
+        event.preventDefault();
+        screen = { name: "search" };
+        return true;
+      }
+      const picked = digitFrom(event);
+      if (picked != null && picked >= 1 && picked <= 9 && !event.altKey) {
+        event.preventDefault();
+        prepick(picked);
+        return true;
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        return true;
+      }
+      return false;
+    }
+    if (event.key === "Tab" && event.shiftKey && !mod && !event.altKey) {
+      event.preventDefault();
+      beginShiftTab();
+      return true;
+    }
+    if (mod && event.shiftKey && event.code === "KeyL" && !event.altKey) {
+      event.preventDefault();
+      screen = screen?.name === "manager" ? null : { name: "manager" };
+      return true;
+    }
+    if (!mod && event.shiftKey && event.code === "KeyL" && !event.altKey) {
+      event.preventDefault();
+      screen = screen?.name === "legend" ? null : { name: "legend" };
+      return true;
+    }
+    if (!mod && !event.shiftKey && !event.altKey && event.code === "KeyL" && !event.repeat) {
+      event.preventDefault();
+      beginLink();
+      return true;
+    }
+    const digit = digitFrom(event);
+    if (event.altKey && !mod && digit === 0) {
+      event.preventDefault();
+      applyFilters({});
+      scene?.flash("All types shown");
+      return true;
+    }
+    if (event.altKey && !mod && digit != null && digit >= 1 && digit <= 9) {
+      event.preventDefault();
+      const typeId = typeIdForDigit(session.doc, digit);
+      if (!typeId) {
+        scene?.flash("No type on that number");
+        return true;
+      }
+      applyFilters(withFilter(session.doc.view?.linkTypeFilters, typeId, toggleShownHidden(session.doc.view?.linkTypeFilters?.[typeId])));
+      return true;
+    }
+    if (!mod && !event.altKey && digit != null && digit >= 1 && digit <= 9) {
+      const linkId = hud.selectedLinkId;
+      if (!linkId || !session.doc.links[linkId]) return false;
+      event.preventDefault();
+      const typeId = typeIdForDigit(session.doc, digit);
+      if (!typeId) {
+        scene?.flash("No type on that number");
+        return true;
+      }
+      assignType(linkId, typeId);
+      return true;
+    }
+    if (!mod && event.code === "KeyT" && event.shiftKey && !event.repeat) {
+      event.preventDefault();
+      cycleSelectedType(event.altKey ? -1 : 1);
+      return true;
+    }
+    if (!mod && !event.shiftKey && !event.altKey && event.code === "KeyT" && !event.repeat) {
+      event.preventDefault();
+      if (!hud.selectedLinkId || !session.doc.links[hud.selectedLinkId]) {
+        scene?.flash("Select a link to change its type");
+        return true;
+      }
+      screen = { name: "picker", purpose: "retarget" };
+      return true;
+    }
+    if (!mod && !event.shiftKey && !event.altKey && event.code === "KeyR" && !event.repeat) {
+      event.preventDefault();
+      reverseSelected();
+      return true;
+    }
+    if (event.altKey && !mod && (event.code === "BracketRight" || event.code === "BracketLeft")) {
+      event.preventDefault();
+      cycleTyped(event.code === "BracketRight" ? 1 : -1);
+      return true;
+    }
+    if (!mod && !event.altKey && !event.shiftKey && (event.key === "." || event.key === ",")) {
+      event.preventDefault();
+      beginFollow(event.key === "." ? "forward" : "backward");
+      return true;
+    }
+    return false;
+  }
+
+  function onPick(id: string) {
+    const purpose = screen?.name === "picker" ? screen.purpose : "retarget";
+    screen = null;
+    if (purpose === "new-link") createLink(id);
+    else if (purpose === "shift-tab") createLinkedOf(id);
+    else if (hud.selectedLinkId) assignType(hud.selectedLinkId, id);
+  }
+
+  function onSaveType(id: string, draft: TypeDraft) {
+    try {
+      session.dispatch({
+        type: "updateLinkType",
+        id,
+        patch: {
+          name: draft.name,
+          color: draft.color.trim(),
+          pattern: draft.pattern,
+          width: draft.width,
+          direction: draft.direction,
+          icon: draft.icon.trim(),
+          description: draft.description.trim(),
+        },
+      });
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    bump();
+    scene?.sync(session.doc, "links");
+  }
+
+  function onAddType(draft: TypeDraft) {
+    const fresh = freshType(session.doc, draft.name);
+    try {
+      session.dispatch({
+        type: "addLinkType",
+        id: fresh.id,
+        linkType: {
+          ...fresh.linkType,
+          color: draft.color.trim(),
+          pattern: draft.pattern,
+          width: draft.width,
+          direction: draft.direction,
+          ...(draft.icon.trim() ? { icon: draft.icon.trim() } : {}),
+          ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
+        },
+      });
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    bump();
+    scene?.sync(session.doc, "links");
+    if (screen?.name === "picker") onPick(fresh.id);
+  }
+
+  function onDeleteType(id: string, mode: "reassign" | "delete-links", to: string) {
+    if (Object.keys(session.doc.linkTypes).length < 2) {
+      scene?.flash("A map keeps at least one link type");
+      return;
+    }
+    const commands = deleteTypeCommands(session.doc, id, { mode, to });
+    const now = Date.now();
+    const key = `delete-type:${id}`;
+    try {
+      for (const command of commands) session.dispatch(command, { groupKey: key, now });
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    if (lastTypeId === id) lastTypeId = to;
+    if (activeTypeId === id) activeTypeId = to;
+    bump();
+    scene?.sync(session.doc, mode === "delete-links" ? "structure" : "links");
+  }
+
+  function onReorder(id: string, delta: -1 | 1) {
+    const order = shiftedOrder(
+      rows.map((row) => ({ id: row.id, order: row.order })),
+      id,
+      delta,
+    );
+    if (!order) return;
+    try {
+      session.dispatch({ type: "reorderLinkType", id, order });
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    bump();
+    scene?.sync(session.doc, "links");
+  }
+
+  function onSearch(id: string) {
+    screen = null;
+    if (!linkMode || !session.doc.nodes[id]) return;
+    linkMode = { ...linkMode, targetId: id };
+    refreshCursor();
+  }
+
+  function onSkipPicker(on: boolean) {
+    skipPicker = on;
+  }
+
+  function onFollow(index: number) {
+    const row = followRows[index];
+    screen = null;
+    if (row) scene?.selectNode(row.nodeId);
   }
 
   function deleteSelection() {
@@ -366,6 +916,11 @@
     bump();
     scene?.sync(session.doc, "structure");
     scene?.applySelection(session.selection);
+    if (linkMode && !session.doc.nodes[linkMode.sourceId]) endLink();
+    else if (linkMode?.targetId && !session.doc.nodes[linkMode.targetId]) {
+      linkMode = { ...linkMode, targetId: null };
+      refreshCursor();
+    }
     retargetPanel();
   }
 
@@ -391,7 +946,14 @@
     shown = null;
     editFromReader = false;
     lastTypeId = session.doc.settings.defaultLinkTypeId ?? "relates-to";
+    linkMode = null;
+    screen = null;
+    activeTypeId = null;
+    skipPicker = false;
+    dimLonely = false;
     bench = null;
+    scene?.setLinkMode(false);
+    scene?.setDimLonely(false);
     scene?.load(session.doc);
   }
 
@@ -414,13 +976,27 @@
       handleEscape,
       openReader,
       editDirect: () => beginEdit(false),
-      createLinked,
-      createUnlinked,
+      createLinked: () => createLinkedOf(),
+      createUnlinked: onModEnter,
       deleteSelection,
       undo,
       redo,
       togglePin,
       commitMove,
+      blocksSceneKeys: () => screen !== null,
+      sceneKey,
+      linkActive: () => linkMode !== null,
+      hoverLinkTarget: (id) => {
+        if (!linkMode || !id || id === linkMode.targetId) return;
+        linkMode = { ...linkMode, targetId: id };
+        refreshCursor();
+      },
+      chooseLinkTarget: (id) => {
+        if (!linkMode) return;
+        linkMode = { ...linkMode, targetId: id };
+        refreshCursor();
+      },
+      cancelLink: () => endLink(),
     });
     const api = {
       setLabelMode: (mode: LabelMode) => scene?.setLabelMode(mode),
@@ -447,7 +1023,12 @@
         linkIds: Object.keys(session.doc.links),
         nodes: session.doc.nodes,
         links: session.doc.links,
+        linkTypes: session.doc.linkTypes,
+        filters: session.doc.view?.linkTypeFilters ?? {},
         selection: scene?.getSelection() ?? null,
+        linkMode,
+        screen: screen?.name ?? null,
+        activeTypeId,
       }),
       selectNode: (id: string | null) => scene?.selectNode(id),
       selectLink: (id: string) => scene?.selectLink(id),
@@ -491,6 +1072,14 @@
     hud.selectedLinkId;
     shown = currentTarget();
   });
+
+  $effect(() => {
+    const id = hud.selectedLinkId;
+    revision;
+    if (!id) return;
+    const typeId = session.doc.links[id]?.typeId;
+    if (typeId) activeTypeId = typeId;
+  });
 </script>
 
 <div class="app" class:reading={panel !== "closed"}>
@@ -506,6 +1095,9 @@
     </div>
     <p class="status" aria-live="polite">
       {hud.message || hud.status}
+      {#if filterLabel}
+        <span>· {filterLabel}</span>
+      {/if}
       {#if hud.prepMs != null}
         <span>· labels prepared in {hud.prepMs.toFixed(0)} ms</span>
       {/if}
@@ -517,7 +1109,9 @@
       <p class="kicker">Selected</p>
       <p class="title">{hud.selectedTitle}</p>
       <p class="meta">
-        {#if hud.operator === "grab"}
+        {#if linkMode}
+          Linking from {nodeTitle(session.doc.nodes[linkMode.sourceId] ?? { text: "" }) || "Untitled"}
+        {:else if hud.operator === "grab"}
           Grab
         {:else if hud.operator === "view"}
           View operator
@@ -543,6 +1137,15 @@
         <button type="button" class:on={mapKind === "new"} onclick={newMap}>New map</button>
         <button type="button" class:on={mapKind === "stress"} onclick={() => chooseMap("stress")}>2,304 nodes</button>
         <button type="button" class:on={mapKind === "sample"} onclick={() => chooseMap("sample")}>Flooding sample</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="kicker">Links</p>
+      <div class="row">
+        <button type="button" class:on={linkMode !== null} onclick={beginLink}>Link</button>
+        <button type="button" class:on={screen?.name === "legend"} onclick={() => (screen = screen?.name === "legend" ? null : { name: "legend" })}>Legend</button>
+        <button type="button" class:on={screen?.name === "manager"} onclick={() => (screen = screen?.name === "manager" ? null : { name: "manager" })}>Types</button>
       </div>
     </div>
 
@@ -633,7 +1236,7 @@
         queueEdit();
       }}
       onEscape={handleEscape}
-      onCommit={commitNavigate}
+      onCommit={commitToReader}
       onEdit={() => beginEdit(true)}
       onPin={togglePin}
       onOpen={(target) => {
@@ -646,13 +1249,63 @@
     />
   {/if}
 
+  {#if screen}
+    <LinkChrome
+      {screen}
+      {rows}
+      nodes={nodeChoices}
+      {followRows}
+      {filters}
+      {dimLonely}
+      {skipPicker}
+      {defaultTypeId}
+      highlightId={lastTypeId}
+      onClose={() => (screen = null)}
+      {onPick}
+      onFilter={(id, state) => applyFilters(withFilter(session.doc.view?.linkTypeFilters, id, state))}
+      onSolo={(id) => applyFilters(soloFilters(rows.map((row) => row.id), id))}
+      onShowAll={() => applyFilters({})}
+      onDimLonely={(on) => {
+        dimLonely = on;
+        scene?.setDimLonely(on);
+      }}
+      {onSkipPicker}
+      onOpenManager={() => (screen = { name: "manager" })}
+      {onSaveType}
+      {onAddType}
+      {onDeleteType}
+      {onReorder}
+      onDefault={(id) => {
+        try {
+          session.dispatch({ type: "setDefaultLinkType", typeId: id });
+        } catch (error) {
+          fail(error);
+          return;
+        }
+        bump();
+        scene?.flash(session.doc.linkTypes[id]?.name ?? "Default type");
+      }}
+      {onSearch}
+      {onFollow}
+      onUndo={undo}
+      onRedo={redo}
+    />
+  {/if}
+
   <footer class="keys">
     <span><kbd>Arrows</kbd> select</span>
     <span><kbd>Enter</kbd> read</span>
     <span><kbd>E</kbd> edit</span>
     <span><kbd>Esc</kbd> step back</span>
+    <span><kbd>L</kbd> link</span>
     <span><kbd>Tab</kbd> new link</span>
+    <span><kbd>Shift</kbd>+<kbd>Tab</kbd> pick type</span>
     <span><kbd>Mod</kbd>+<kbd>Enter</kbd> new node</span>
+    <span><kbd>1</kbd>–<kbd>9</kbd> type</span>
+    <span><kbd>T</kbd> types</span>
+    <span><kbd>R</kbd> reverse</span>
+    <span><kbd>.</kbd> <kbd>,</kbd> follow</span>
+    <span><kbd>Shift</kbd>+<kbd>L</kbd> legend</span>
     <span><kbd>G</kbd> grab</span>
     <span><kbd>Del</kbd> delete</span>
     <span><kbd>Mod</kbd>+<kbd>Z</kbd> undo</span>

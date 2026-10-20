@@ -74,6 +74,12 @@ export interface SceneHooks {
   redo?: () => void;
   togglePin?: () => void;
   commitMove?: (id: string, position: Vec3) => void;
+  blocksSceneKeys?: () => boolean;
+  sceneKey?: (event: KeyboardEvent) => boolean;
+  linkActive?: () => boolean;
+  hoverLinkTarget?: (id: string | null) => void;
+  chooseLinkTarget?: (id: string) => void;
+  cancelLink?: () => void;
 }
 
 export interface LoadOptions {
@@ -93,7 +99,7 @@ export interface MindMapScene {
   setLabelMode(mode: LabelMode): void;
   setDensity(density: LabelDensity): void;
   load(doc: MapDocument, options?: LoadOptions): void;
-  sync(doc: MapDocument, kind: "text" | "structure"): void;
+  sync(doc: MapDocument, kind: "text" | "structure" | "links"): void;
   selectNode(id: string | null): void;
   selectLink(id: string): void;
   applySelection(selection: { nodeId: string | null; linkId: string | null }): void;
@@ -109,6 +115,11 @@ export interface MindMapScene {
   getHud(): HudSnapshot;
   getPose(): { position: Vec3; target: Vec3 };
   getSelection(): { nodeId: string | null; linkId: string | null; linkOriginId: string | null };
+  setLinkMode(on: boolean): void;
+  setLinkCursor(cursor: { sourceId: string; targetId: string | null; color: string } | null): void;
+  spatialFrom(fromId: string, direction: ArrowDirection): string | null;
+  setDimLonely(on: boolean): void;
+  setStatus(text: string): void;
   dispose(): void;
 }
 
@@ -201,6 +212,7 @@ export function createMindMapScene(
   let messageUntil = 0;
   let ready = false;
   let status = "Starting the scene";
+  let linkBanner = "";
   let prepMs: number | null = null;
   let visibleLabels = 0;
   let lastSpatial: { fromId: string; direction: ArrowDirection } | null = null;
@@ -218,6 +230,11 @@ export function createMindMapScene(
   let hoverId: string | null = null;
   let grab: GrabOperator | null = null;
   let grabId: string | null = null;
+  let linkMode = false;
+  let linkCursor: { sourceId: string; targetId: string | null; color: string } | null = null;
+  let linkSpatial: { fromId: string; direction: ArrowDirection } | null = null;
+  let rubber: Line2 | null = null;
+  let dimLonely = false;
   let loadGen = 0;
   let linkRebuildQueued = false;
   let navHistory = new NavHistory();
@@ -244,6 +261,8 @@ export function createMindMapScene(
     }
     const highlightMaterial = highlight?.material as LineMaterial | undefined;
     if (highlightMaterial?.resolution) highlightMaterial.resolution.set(width, height);
+    const rubberMaterial = rubber?.material as LineMaterial | undefined;
+    if (rubberMaterial?.resolution) rubberMaterial.resolution.set(width, height);
     updateIconUniforms();
   }
 
@@ -346,14 +365,14 @@ export function createMindMapScene(
         frameAll(true);
       }
     }
-    status = labelMode === "off" ? "Icons only" : "Preparing labels";
+    status = linkCursor ? linkBanner || status : labelMode === "off" ? "Icons only" : "Preparing labels";
     const started = performance.now();
     const gen = ++loadGen;
     buildLabels(next, () => {
       if (gen !== loadGen) return;
       prepMs = performance.now() - started;
       ready = true;
-      status = grab ? grabStatus() : "Ready";
+      status = grab ? grabStatus() : linkCursor ? linkBanner || "Link" : "Ready";
       publish();
       requestRender();
     });
@@ -642,22 +661,27 @@ export function createMindMapScene(
     if (!colorAttr || !scaleAttr) return;
     nodes.forEach((node, index) => {
       const selected = node.id === selectedId && !selectedLinkId;
-      const hovered = node.id === hoverId && !selected;
+      const aimed = node.id === linkCursor?.targetId;
+      const hovered = node.id === hoverId && !selected && !aimed;
       const color = node.base.clone();
       if (selected) color.lerp(new THREE.Color("#ffe7a3"), 0.55);
+      else if (aimed) color.lerp(new THREE.Color("#9ecbff"), 0.55);
+      if (dimLonely && lonelyNode(node.id) && !selected) color.multiplyScalar(0.38);
       colorAttr!.setXYZ(index, color.r, color.g, color.b);
-      const lift = selected ? 1.45 : hovered ? 1.12 : 1;
+      const lift = selected ? 1.45 : aimed ? 1.28 : hovered ? 1.12 : 1;
       scaleAttr!.setX(index, node.scale * lift);
       node.card.classList.toggle("is-selected", selected);
-      node.text.color = selected ? 0xfff6dc : 0xf4f7fb;
+      node.text.color = selected ? 0xfff6dc : aimed ? 0xe7f2ff : 0xf4f7fb;
       node.text.fontSize = selected ? BASE_FONT * 1.12 : BASE_FONT;
     });
     colorAttr.needsUpdate = true;
     scaleAttr.needsUpdate = true;
+    const aimed = linkCursor?.targetId ? nodes.find((node) => node.id === linkCursor?.targetId) : undefined;
     const selected = nodes.find((node) => node.id === selectedId);
-    if (selected && !selectedLinkId) {
-      ring.position.copy(selected.position);
-      ring.scale.setScalar(selected.scale * 1.7);
+    const ringNode = aimed ?? (selected && !selectedLinkId ? selected : undefined);
+    if (ringNode) {
+      ring.position.copy(ringNode.position);
+      ring.scale.setScalar(ringNode.scale * 1.7);
       ring.visible = true;
     } else {
       ring.visible = false;
@@ -1195,7 +1219,8 @@ export function createMindMapScene(
   function onKey(event: KeyboardEvent) {
     if ((event.metaKey || event.ctrlKey) && event.altKey) return;
     const target = event.target as HTMLElement | null;
-    if (target?.closest?.("[data-editor-root], .cm-editor")) return;
+    if (target?.closest?.("[data-editor-root], [data-overlay], .cm-editor")) return;
+    if (hooks.blocksSceneKeys?.()) return;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
     if (event.key === "Enter" && target?.tagName === "BUTTON") return;
     const mod = event.metaKey || event.ctrlKey;
@@ -1234,6 +1259,7 @@ export function createMindMapScene(
         return;
       }
     }
+    if (!grab && !viewOperator && hooks.sceneKey?.(event)) return;
     const arrow =
       event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown";
     if (arrow) {
@@ -1302,8 +1328,7 @@ export function createMindMapScene(
     }
     if (event.key === "Tab" && !mod && !event.altKey) {
       event.preventDefault();
-      if (event.shiftKey) note("The link-type picker arrives in a later phase");
-      else hooks.createLinked?.();
+      if (!event.shiftKey) hooks.createLinked?.();
       return;
     }
     if (event.key === "Enter") {
@@ -1352,11 +1377,11 @@ export function createMindMapScene(
     } else if ((event.code === "BracketRight" || event.code === "BracketLeft") && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       cycle(event.code === "BracketRight" ? 1 : -1);
-    } else if (event.code === "Digit1") setLabelMode("sdf");
-    else if (event.code === "Digit2") setLabelMode("css2d");
-    else if (event.code === "Digit0") setLabelMode("off");
-    else if (event.code === "Digit9") setDensity(density === "all" ? "nearby" : "all");
-    else if (event.code === "KeyM" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) onToggleMap();
+    } else if (event.code === "Backquote" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      if (event.shiftKey) setDensity(density === "all" ? "nearby" : "all");
+      else setLabelMode(labelMode === "sdf" ? "css2d" : labelMode === "css2d" ? "off" : "sdf");
+    } else if (event.code === "KeyM" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) onToggleMap();
     requestRender();
   }
 
@@ -1381,6 +1406,7 @@ export function createMindMapScene(
   }
 
   function beginView() {
+    if (hooks.linkActive?.()) return;
     focusAnim = null;
     zeroControlDeltas();
     viewOperator = new ViewOperator(readPose());
@@ -1595,6 +1621,7 @@ export function createMindMapScene(
       autoOrbit -= 1;
       orbitStep("right");
     }
+    if (linkCursor && !linkCursor.targetId) refreshRubber(false);
     let controlsMoved = false;
     if (!viewOperator && !grab) {
       if (animating) zeroControlDeltas();
@@ -1633,6 +1660,11 @@ export function createMindMapScene(
     pointer = { x: event.clientX, y: event.clientY, moved: false };
   }
   function onPointerMove(event: PointerEvent) {
+    if (linkMode) {
+      const id = nearestNodeId(event);
+      if (id) hooks.hoverLinkTarget?.(id);
+      return;
+    }
     if (grab) {
       if (event.movementX === 0 && event.movementY === 0) return;
       moveGrabByMouse(event.movementX, event.movementY, event.shiftKey, event.ctrlKey || event.metaKey);
@@ -1650,6 +1682,14 @@ export function createMindMapScene(
     hoverAt(event);
   }
   function onPointerUp(event: PointerEvent) {
+    if (linkMode && event.button === 0) {
+      if (pointer && !pointer.moved) {
+        const id = nearestNodeId(event);
+        if (id) hooks.chooseLinkTarget?.(id);
+      }
+      pointer = null;
+      return;
+    }
     if (grab && event.button === 0) {
       endGrab(true);
       pointer = null;
@@ -1685,7 +1725,8 @@ export function createMindMapScene(
   }
   function onContextMenu(event: Event) {
     event.preventDefault();
-    if (grab) endGrab(false);
+    if (linkMode) hooks.cancelLink?.();
+    else if (grab) endGrab(false);
     else if (viewOperator) endView(false);
   }
   function onWheel(event: WheelEvent) {
@@ -1754,14 +1795,170 @@ export function createMindMapScene(
     select(selection.nodeId && currentDoc.nodes[selection.nodeId] ? selection.nodeId : null, null, false);
   }
 
-  function sync(next: MapDocument, kind: "text" | "structure") {
+  function sync(next: MapDocument, kind: "text" | "structure" | "links") {
     if (kind === "text") {
       currentDoc = next;
       linkIndex = LinkIndex.from(next);
       refreshText();
       return;
     }
+    if (kind === "links") {
+      currentDoc = next;
+      linkIndex = LinkIndex.from(next);
+      disposeLinks();
+      buildLinks(next);
+      updateHighlight();
+      refreshRubber(true);
+      applySelectionVisual();
+      publish();
+      return;
+    }
     load(next, { keepCamera: true, preserveSelection: true });
+  }
+
+  function lonelyNode(id: string): boolean {
+    const ids = linkIndex.byNode.get(id);
+    if (!ids || ids.size === 0) return true;
+    for (const linkId of ids) {
+      const link = currentDoc.links[linkId];
+      if (link && currentDoc.view?.linkTypeFilters?.[link.typeId] !== "hidden") return false;
+    }
+    return true;
+  }
+
+  function setDimLonely(on: boolean) {
+    dimLonely = on;
+    applySelectionVisual();
+  }
+
+  function setStatus(text: string) {
+    status = text;
+    linkBanner = text;
+    publish();
+  }
+
+  function setLinkMode(on: boolean) {
+    linkMode = on;
+    if (!on) {
+      linkCursor = null;
+      linkSpatial = null;
+      refreshRubber(false);
+    }
+    controls.enabled = !on && !grab && !viewOperator;
+    requestRender();
+  }
+
+  function setLinkCursor(cursor: { sourceId: string; targetId: string | null; color: string } | null) {
+    linkCursor = cursor;
+    if (!cursor) linkSpatial = null;
+    refreshRubber(true);
+    applySelectionVisual();
+  }
+
+  function refreshRubber(request: boolean) {
+    if (!linkCursor) {
+      if (rubber) rubber.visible = false;
+      if (request) requestRender();
+      return;
+    }
+    const source = nodes.find((node) => node.id === linkCursor?.sourceId);
+    if (!source) return;
+    const target = linkCursor.targetId ? nodes.find((node) => node.id === linkCursor?.targetId) : undefined;
+    const end = target
+      ? target.position.clone()
+      : source.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(-1.8));
+    const start = source.position.clone();
+    const delta = end.clone().sub(start);
+    const span = delta.length();
+    if (span > 0.8) {
+      delta.multiplyScalar(1 / span);
+      start.addScaledVector(delta, 0.45);
+      end.addScaledVector(delta, -0.45);
+    }
+    if (!rubber) {
+      const geometry = new LineGeometry();
+      geometry.setPositions([start.x, start.y, start.z, end.x, end.y, end.z]);
+      const material = new LineMaterial({
+        color: linkCursor.color,
+        linewidth: 3,
+        dashed: true,
+        dashSize: 0.22,
+        gapSize: 0.16,
+        transparent: true,
+        opacity: 0.95,
+      });
+      material.resolution.set(host.clientWidth || 1, host.clientHeight || 1);
+      rubber = new Line2(geometry, material);
+      rubber.computeLineDistances();
+      rubber.frustumCulled = false;
+      rubber.renderOrder = 3;
+      scene.add(rubber);
+    } else {
+      rubber.geometry.dispose();
+      const geometry = new LineGeometry();
+      geometry.setPositions([start.x, start.y, start.z, end.x, end.y, end.z]);
+      rubber.geometry = geometry;
+      rubber.computeLineDistances();
+      (rubber.material as LineMaterial).color.set(linkCursor.color);
+      rubber.visible = true;
+    }
+    if (request) requestRender();
+  }
+
+  function nearestNodeId(event: PointerEvent): string | null {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    let best: { id: string; dist: number } | null = null;
+    for (const node of nodes) {
+      const icon = projectToScreen(node.position, rect);
+      if (!icon) continue;
+      const dist = Math.hypot(icon.x - x, icon.y - y);
+      if (!best || dist < best.dist) best = { id: node.id, dist };
+    }
+    if (!best || best.dist > 180) return null;
+    return best.id;
+  }
+
+  function spatialFrom(fromId: string, direction: ArrowDirection): string | null {
+    const current = nodes.find((node) => node.id === fromId);
+    if (!current) return null;
+    const currentScreen = screenOf(current.position);
+    if (!currentScreen || currentScreen.behind) {
+      focusOn(current.position);
+      return null;
+    }
+    const linked = visibleNeighbourIds(currentDoc, linkIndex, fromId);
+    const viewport = { width: host.clientWidth || 1, height: host.clientHeight || 1 };
+    const candidates: SpatialCandidate[] = [];
+    for (const node of nodes) {
+      if (node.id === fromId) continue;
+      const screen = screenOf(node.position);
+      if (!screen || screen.behind) continue;
+      candidates.push({
+        id: node.id,
+        screen: { x: screen.x, y: screen.y, depth: screen.depth },
+        world: { x: node.position.x, y: node.position.y, z: node.position.z },
+        linked: linked.has(node.id),
+      });
+    }
+    const result = chooseSpatialTarget({
+      currentId: fromId,
+      current: { x: currentScreen.x, y: currentScreen.y, depth: currentScreen.depth },
+      currentWorld: { x: current.position.x, y: current.position.y, z: current.position.z },
+      candidates,
+      direction,
+      previousId: linkSpatial?.fromId,
+      previousDirection: linkSpatial?.direction,
+      viewport,
+      typicalSpacing: spacing,
+    });
+    if (!result.nextId) {
+      note("Nothing that way");
+      return null;
+    }
+    linkSpatial = { fromId, direction };
+    return result.nextId;
   }
 
   function refreshText() {
@@ -1846,7 +2043,7 @@ export function createMindMapScene(
   }
 
   function beginGrab() {
-    if (viewOperator || hooks.isOverlayFocused?.()) return;
+    if (viewOperator || hooks.isOverlayFocused?.() || hooks.linkActive?.()) return;
     if (selectedLinkId || !selectedId || !currentDoc.nodes[selectedId]) {
       note("Select a node to move");
       return;
@@ -1961,6 +2158,11 @@ export function createMindMapScene(
     getHud,
     getPose,
     getSelection: () => ({ nodeId: selectedId, linkId: selectedLinkId, linkOriginId }),
+    setLinkMode,
+    setLinkCursor,
+    spatialFrom,
+    setDimLonely,
+    setStatus,
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);
@@ -1973,6 +2175,11 @@ export function createMindMapScene(
       for (const slot of linkLabelSlots) {
         slot.title.dispose();
         slot.type.dispose();
+      }
+      if (rubber) {
+        scene.remove(rubber);
+        rubber.geometry.dispose();
+        (rubber.material as THREE.Material).dispose();
       }
       clearWorld();
       iconTexture.dispose();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MapSession } from "../core/session";
 import { linkOriginOnSelect, stepEscape } from "./escape";
+import { modEnterAction } from "./modEnter";
 import { GRAB_SNAP, GrabOperator } from "./grab";
 
 describe("escape steps", () => {
@@ -34,6 +35,19 @@ describe("escape steps", () => {
     expect(stepEscape(base)).toEqual({ kind: "clear-selection" });
     expect(stepEscape({ ...base, panel: "reader", pinned: true })).toEqual({ kind: "clear-selection" });
     expect(stepEscape({ ...base, nodeId: null })).toEqual({ kind: "noop" });
+  });
+});
+
+describe("Mod+Enter", () => {
+  it("creates an unlinked node from Navigate and opens it in Edit", () => {
+    expect(modEnterAction({ panel: "closed", pinned: false, overlayFocused: false })).toEqual({ kind: "create-unlinked" });
+    expect(modEnterAction({ panel: "read", pinned: true, overlayFocused: false })).toEqual({ kind: "create-unlinked" });
+  });
+
+  it("commits Edit and returns to the Reader", () => {
+    expect(modEnterAction({ panel: "edit", pinned: false, overlayFocused: true })).toEqual({ kind: "commit-to-reader" });
+    expect(modEnterAction({ panel: "edit", pinned: false, overlayFocused: false })).toEqual({ kind: "commit-to-reader" });
+    expect(modEnterAction({ panel: "read", pinned: false, overlayFocused: true })).toEqual({ kind: "noop" });
   });
 });
 

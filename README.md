@@ -1,6 +1,6 @@
 # 3D Mind Map
 
-Keyboard-first desktop app for free-form 3D mind maps. This slice covers the Phase 0 scene, the Phase 1 map engine, Phase 2 navigation, and Phase 3 editing: you can build a map from scratch with the keyboard. Saving, tabs, the link-type picker, and the axis gizmo are later. The plan is `docs/plan.md`.
+Keyboard-first desktop app for free-form 3D mind maps. This slice covers the Phase 0 scene, the Phase 1 map engine, Phase 2 navigation, Phase 3 editing, and Phase 4 links and link types. You can build a map and its typed links from the keyboard. Saving, tabs, waypoint editing, and the axis gizmo are later. The plan is `docs/plan.md`.
 
 The UI and the engine are TypeScript (Svelte 5, Vite, Three.js). The desktop shell is Tauri 2. The same page also runs in a browser, which is how the scene was checked on this Linux machine.
 
@@ -21,8 +21,18 @@ The stress map starts selected: 2,304 document icons and about 6,000 links. Swit
 | Enter | Open the Reader for the selected node or link |
 | E | Edit. From the map this skips the Reader; from the Reader it steps into Edit |
 | Esc | Step back one level: Edit, then Reader, then the selection. On a link, return to the node you arrived from. On a node, with nothing else open, clear the selection |
-| Tab | Create a linked node with the last-used type (relates to, until a picker exists) and edit it |
-| Mod+Enter | From the map, place an unlinked node in front of the camera and edit it. From Edit, commit and return to the map |
+| Tab | Create a linked node with the last-used type, place it, and edit it |
+| Shift+Tab | Same as Tab, after you pick the link type |
+| Mod+Enter | From the map (Navigate, including a pinned Reader while the scene has the keyboard), place an unlinked node and edit it. From Edit, commit and open the Reader |
+| L | Link mode. The current node is the source. Arrows or the mouse choose a target, 1–9 pre-pick a type, Enter creates the link or opens the type picker, N places a new unlinked target, `/` searches nodes by name. Esc or right-click cancels |
+| 1–9 | On a selected link, set that type. In Link mode, pre-pick the type (the rubber band takes its colour) |
+| T | Open the type picker for the selected link. Shift+T / Alt+Shift+T cycle next / previous. A run of cycles is one undo |
+| R | Reverse the selected link |
+| `.` / `,` | Follow the active type forward / backward. Several candidates open a numbered chooser |
+| Alt+] / Alt+[ | Cycle only links of the active type |
+| Alt+1–9 | Show or hide that type. Alt+0 shows every type |
+| Shift+L | Legend: Space cycles shown, dimmed, hidden. S solos. A shows all |
+| Mod+Shift+L | Link-type manager. Enter edits, Mod+N adds, Alt+arrows reorder the number keys, Delete asks before removing a type |
 | G | Grab the selected node. Move the mouse or nudge with the arrows (Shift is a larger step). X/Y/Z lock a world axis, wheel or PageUp/PageDown change depth, Shift slows the mouse, Ctrl/Cmd snaps to 0.5. Click or Enter keeps the move. Esc or right-click puts it back |
 | Delete / Backspace | Delete the selected node (its links go too) or the selected link |
 | Mod+Z / Mod+Shift+Z / Ctrl+Y | Undo / redo. Typing in one edit session is a single step until you pause |
@@ -36,8 +46,7 @@ The stress map starts selected: 2,304 document icons and about 6,000 links. Swit
 | Shift+F or Home | Frame every node |
 | V | View operator: move the mouse to orbit, Shift pans, wheel zooms. Click or Enter keeps the view. Esc or right-click restores it |
 | Ctrl+Up / Ctrl+Down (Cmd on macOS) | Step nearer / farther in depth |
-| 1 / 2 / 0 | SDF labels, CSS2D labels, icons only |
-| 9 | Toggle nearby titles and every title in front of the camera |
+| `` ` `` | Cycle label drawing: SDF, CSS2D, icons only. Shift+`` ` `` toggles nearby titles and every title in front of the camera |
 | M | Swap the stress map and the flooding sample |
 
 Mouse: left-drag orbits, right-drag or middle-drag pans, wheel zooms. Click a title or a link to select it. Clicking empty space leaves the selection as it is. Click a document icon, or double-click a link label, to open the Reader. Double-click a title to focus it. The scene renders on demand and keeps drawing while the camera is moving.
@@ -45,6 +54,8 @@ Mouse: left-drag orbits, right-drag or middle-drag pans, wheel zooms. Click a ti
 Icons are billboarded document sprites with a minimum on-screen size. A page with text lines has body copy beyond its title; a blank page is title only. Link curves are batched per type (colour, dash pattern, width), with cone arrowheads that stay at least 12 pixels tall, and a fan around the pair axis. Waypoint links keep the user's route. A self-link draws as a loop. Link labels are two SDF lines (title, then a smaller type name); a link with no title shows only the type.
 
 The Reader is docked on the right. It renders Markdown with `markdown-it` (raw HTML off) and DOMPurify. Image markdown is a labelled placeholder, and links open in a new tab. Edit mode is a title field plus CodeMirror, with a live preview underneath. Alt+T moves between the title and the body. Positions live in the open document; writing them to a file is a later phase.
+
+Link mode draws a dashed rubber band from the source to the aimed node. Enter with a type already chosen, or with “Skip the picker” turned on in the type manager, creates the link and selects it. Otherwise the type picker opens. The next Enter on that link opens the Reader, where E edits the link text. Hidden types are not drawn and are skipped by cycle and follow. Dimmed types stay faint and can still be navigated. Those filters sit with the camera view, so a future save keeps them, and they are not undo steps. “Dim nodes with no visible links” and “Skip the picker” are choices for this session.
 
 ## Run the desktop shell
 
@@ -72,7 +83,7 @@ npm run tauri dev
 npm test
 ```
 
-Vitest covers titles, the link index, schema and integrity, the v0→v1 migration, undo grouping, spatial navigation, placement, the grab operator, Escape stepping, and reader Markdown.
+Vitest covers titles, the link index, schema and integrity, the v0→v1 migration, undo grouping, spatial navigation, placement, the grab operator, Escape stepping, Mod+Enter, link types and filters, and reader Markdown.
 
 ## Labels
 

@@ -1,11 +1,11 @@
-import { enablePatches, produceWithPatches } from "immer";
+import { enablePatches, produce, produceWithPatches } from "immer";
 import { loadMap, type LoadedMap } from "../io/load";
 import { checkInvariants } from "../io/integrity";
 import { applyCommand, CommandError, type Command } from "./commands";
 import { LinkIndex } from "./graph";
 import { History } from "./history";
 import { createEmptyMap, type CreateMapOptions } from "./document";
-import { emptySelection, type Issue, type MapDocument, type SelectionSnapshot } from "./types";
+import { emptySelection, type Issue, type LinkTypeFilter, type MapDocument, type SelectionSnapshot } from "./types";
 
 enablePatches();
 
@@ -99,6 +99,20 @@ export class MapSession {
 
   closeGroup(): void {
     this.history.closeGroup();
+  }
+
+  /** View filters stay out of undo. Shown types are stored by omission. */
+  setLinkFilters(filters: Record<string, LinkTypeFilter>): void {
+    this.doc = produce(this.doc, (draft) => {
+      if (!draft.view) draft.view = {};
+      const cleaned: Record<string, LinkTypeFilter> = {};
+      for (const [id, value] of Object.entries(filters)) {
+        if (value === "dimmed" || value === "hidden") cleaned[id] = value;
+      }
+      if (Object.keys(cleaned).length === 0) delete draft.view.linkTypeFilters;
+      else draft.view.linkTypeFilters = cleaned;
+      if (!draft.view.camera && !draft.view.linkTypeFilters) delete draft.view;
+    });
   }
 
   private noteSelection(command: Command): void {

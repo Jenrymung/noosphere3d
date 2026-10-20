@@ -131,6 +131,7 @@
       return;
     }
     if (event.key === "Enter" && mod) {
+      if (mode !== "edit") return;
       event.preventDefault();
       event.stopPropagation();
       onCommit();
@@ -238,7 +239,7 @@
   </div>
   <p class="hint">
     {#if mode === "edit"}
-      Esc steps back · Mod+Enter keeps it and returns to the map · Alt+T title
+      Esc steps back · Mod+Enter keeps it and opens the Reader · Alt+T title
     {:else}
       E edits · Esc closes · arrows scroll
     {/if}

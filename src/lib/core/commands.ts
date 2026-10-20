@@ -34,6 +34,7 @@ export type Command =
   | { type: "updateLinkType"; id: string; patch: Partial<Omit<LinkType, "order">> }
   | { type: "reorderLinkType"; id: string; order: string }
   | { type: "deleteLinkType"; id: string; reassignTo: string }
+  | { type: "setDefaultLinkType"; typeId: string }
   | { type: "addWaypoint"; linkId: string; waypointId: string; waypoint: Waypoint }
   | { type: "moveWaypoint"; linkId: string; waypointId: string; position: Vec3 }
   | { type: "deleteWaypoint"; linkId: string; waypointId: string }
@@ -242,6 +243,12 @@ export function applyCommand(draft: Draft<MapDocument>, command: Command): void 
       if (!type) throw new CommandError(`Unknown link type "${command.id}"`);
       if (!isOrderKey(command.order)) throw new CommandError("Link type order key is invalid");
       type.order = command.order;
+      return;
+    }
+    case "setDefaultLinkType": {
+      if (!draft.linkTypes[command.typeId]) throw new CommandError(`Unknown link type "${command.typeId}"`);
+      if (!draft.settings) draft.settings = {};
+      draft.settings.defaultLinkTypeId = command.typeId;
       return;
     }
     case "deleteLinkType": {
