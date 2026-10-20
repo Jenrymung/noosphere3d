@@ -56,6 +56,7 @@ const LinkSchema = v.object({
 export const MapDocumentSchema = v.object({
   format: v.literal("mindmap3d"),
   version: v.pipe(v.number(), v.integer(), v.minValue(1)),
+  minor: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
   id: v.optional(v.string()),
   meta: v.optional(
     v.object({

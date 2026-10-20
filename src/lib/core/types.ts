@@ -1,7 +1,10 @@
 /** Collaboration-ready document types. Ids are object keys and are not repeated inside entries. */
 
 export const FORMAT = "mindmap3d" as const;
+/** Major file-format version. A higher major than this is refused. */
 export const CURRENT_VERSION = 1;
+/** Minor file-format version. A higher minor is opened and saved as-is. */
+export const CURRENT_MINOR = 0;
 export const APP_VERSION = "0.1.0";
 export const MAX_TITLE_LENGTH = 200;
 export const MAX_WAYPOINTS_PER_LINK = 64;
@@ -87,11 +90,13 @@ export interface MapView {
 
 /**
  * One `.mindmap3d` document.
+ * `version` is the major format. `minor`, when omitted, is 0.
  * Unknown keys are preserved on the object and written back out.
  */
 export interface MapDocument {
   format: typeof FORMAT;
   version: number;
+  minor?: number;
   id?: string;
   meta?: MapMeta;
   settings?: MapSettings;

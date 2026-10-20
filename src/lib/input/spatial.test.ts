@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import * as fc from "fast-check";
-import { chooseDepthTarget, chooseSpatialTarget, projectPoint, type ScreenPoint, type SpatialCandidate } from "./spatial";
+import { urbanFloodingDocument } from "../io/sampleMap";
+import { stressMap } from "../scene/dummyMap";
+import type { MapDocument, Vec3 } from "../core/types";
+import {
+  chooseDepthTarget,
+  chooseSpatialTarget,
+  projectPoint,
+  type ArrowDirection,
+  type CameraFrame,
+  type ScreenPoint,
+  type SpatialCandidate,
+} from "./spatial";
 
 function at(id: string, x: number, y: number, depth = 10): SpatialCandidate {
   return { id, screen: { x, y, depth } };
@@ -58,7 +69,17 @@ describe("spatial navigation", () => {
     expect(result.nextId).toBe("a");
   });
 
-  it("skips a far node that projects onto the selection", () => {
+  it("prefers a linked node over a closer unlinked diagonal", () => {
+    const candidates = [
+      at("diagonal", 40, 4, 12),
+      { ...at("linked", 110, 10, 10), linked: true },
+    ];
+    expect(chooseSpatialTarget({ currentId: "c", current: origin, candidates, direction: "right" }).nextId).toBe(
+      "linked",
+    );
+  });
+
+  it("ranks a far node on the selection below a side node", () => {
     const candidates = [at("alias", 6, 2, 40), at("side", 70, 8, 11)];
     expect(chooseSpatialTarget({ currentId: "c", current: origin, candidates, direction: "right" }).nextId).toBe(
       "side",
@@ -120,5 +141,112 @@ describe("spatial navigation", () => {
       ),
       { numRuns: 40 },
     );
+  });
+});
+
+const VIEW: Pick<CameraFrame, "fovDeg" | "width" | "height"> = { fovDeg: 50, width: 1280, height: 800 };
+
+function neighbourIds(doc: MapDocument, nodeId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const link of Object.values(doc.links)) {
+    if (link.source === nodeId && link.target !== nodeId) ids.add(link.target);
+    if (link.target === nodeId && link.source !== nodeId) ids.add(link.source);
+  }
+  return ids;
+}
+
+function projected(
+  doc: MapDocument,
+  camera: CameraFrame,
+  currentId: string,
+): { current: ScreenPoint; candidates: SpatialCandidate[] } {
+  const current = projectPoint(doc.nodes[currentId].position, camera);
+  if (!current) throw new Error(`selection ${currentId} is behind the camera`);
+  const linked = neighbourIds(doc, currentId);
+  const candidates: SpatialCandidate[] = [];
+  for (const [id, node] of Object.entries(doc.nodes)) {
+    if (id === currentId) continue;
+    const screen = projectPoint(node.position, camera);
+    if (!screen) continue;
+    candidates.push({ id, screen, linked: linked.has(id) });
+  }
+  return { current, candidates };
+}
+
+function step(doc: MapDocument, camera: CameraFrame, currentId: string, direction: ArrowDirection): string | null {
+  const { current, candidates } = projected(doc, camera, currentId);
+  return chooseSpatialTarget({ currentId, current, candidates, direction }).nextId;
+}
+
+describe("spatial layouts", () => {
+  it("steps along the cubic lattice instead of the diagonal or a far cluster", () => {
+    const doc = stressMap();
+    const here = doc.nodes["s2-3-3-2"].position;
+    const camera: CameraFrame = {
+      ...VIEW,
+      position: { x: here.x + 7, y: here.y + 5, z: here.z + 9 },
+      target: here,
+    };
+    expect(step(doc, camera, "s2-3-3-2", "right")).toBe("s2-4-3-2");
+    expect(step(doc, camera, "s2-3-3-2", "left")).toBe("s2-2-3-2");
+    expect(step(doc, camera, "s2-3-3-2", "up")).toBe("s2-3-4-2");
+    expect(step(doc, camera, "s2-3-3-2", "down")).toBe("s2-3-2-2");
+  });
+
+  it("moves through the urban-flooding sample along its links", () => {
+    const doc = urbanFloodingDocument();
+    const camera: CameraFrame = {
+      ...VIEW,
+      position: doc.view!.camera!.position,
+      target: doc.view!.camera!.target,
+      fovDeg: doc.view!.camera!.fov ?? 50,
+    };
+    expect(step(doc, camera, "n-flood", "right")).toBe("n-drainage");
+    expect(step(doc, camera, "n-flood", "left")).toBe("n-rain");
+    const { current, candidates } = projected(doc, camera, "n-flood");
+    const up = chooseSpatialTarget({ currentId: "n-flood", current, candidates, direction: "up" });
+    expect(up.widened).toBe(true);
+    expect(up.nextId).toBe("n-rain");
+    expect(step(doc, camera, "n-rain", "right")).toBe("n-flood");
+    expect(step(doc, camera, "n-drainage", "left")).toBe("n-flood");
+  });
+
+  it("stays inside a dense cluster that sits in front of a far one", () => {
+    const doc = urbanFloodingDocument();
+    doc.nodes = {};
+    doc.links = {};
+    const place = (id: string, position: Vec3, title: string) => {
+      doc.nodes[id] = { text: `# ${title}`, position };
+    };
+    const link = (id: string, source: string, target: string) => {
+      doc.links[id] = { source, target, typeId: "relates-to", text: "" };
+    };
+    place("sel", { x: 0, y: 0, z: 0 }, "Here");
+    place("east", { x: 1.7, y: 0.1, z: 0.1 }, "East");
+    place("west", { x: -1.7, y: -0.1, z: 0 }, "West");
+    place("north", { x: 0.1, y: 1.7, z: -0.1 }, "North");
+    place("south", { x: -0.05, y: -1.7, z: 0.1 }, "South");
+    place("diag", { x: 0.9, y: -0.45, z: 0.7 }, "Diagonal");
+    place("pack", { x: 0.4, y: 0.35, z: -0.2 }, "Packed");
+    place("far-a", { x: 0.15, y: -8, z: -28 }, "Far A");
+    place("far-b", { x: 1.35, y: -7.6, z: -28.6 }, "Far B");
+    place("far-c", { x: -0.65, y: -6.9, z: -27.6 }, "Far C");
+    place("far-d", { x: 0.65, y: -8.7, z: -29.2 }, "Far D");
+    link("l-east", "sel", "east");
+    link("l-west", "sel", "west");
+    link("l-north", "sel", "north");
+    link("l-south", "sel", "south");
+    link("l-far", "far-a", "far-b");
+    link("l-far-2", "far-b", "far-c");
+    link("l-far-3", "far-c", "far-d");
+    const camera: CameraFrame = {
+      ...VIEW,
+      position: { x: 0, y: 3, z: 14 },
+      target: { x: 0, y: 0, z: 0 },
+    };
+    expect(step(doc, camera, "sel", "right")).toBe("east");
+    expect(step(doc, camera, "sel", "left")).toBe("west");
+    expect(step(doc, camera, "sel", "up")).toBe("north");
+    expect(step(doc, camera, "sel", "down")).toBe("south");
   });
 });

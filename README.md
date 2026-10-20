@@ -61,8 +61,8 @@ Vitest covers titles, the link index, schema and integrity, the v0→v1 migratio
 
 The viewport can draw titles three ways, on the same map:
 
-- **SDF** — [troika-three-text](https://github.com/protectwise/troika/tree/main/packages/troika-three-text). Nearby mode uses one `Text` mesh per visible title (capped). All-titles mode packs them into one experimental `BatchedText` draw.
-- **CSS2D** — Three.js `CSS2DRenderer`, one DOM card per visible title.
+- **SDF** — [troika-three-text](https://github.com/protectwise/troika/tree/main/packages/troika-three-text), with a dark outline. This is the default. Nearby mode uses one `Text` mesh per visible title (capped). All-titles mode packs them into one experimental `BatchedText` draw. A rounded plate behind the SDF title is deferred to v1.
+- **CSS2D** — Three.js `CSS2DRenderer`, one DOM card per visible title. Still available from the HUD and the 2 key.
 - **Icons** — instanced billboard sprites only.
 
 Nearby mode keeps the selection, its neighbours inside 48 world units, and up to 240 other in-front titles. Nodes behind the camera are skipped.
@@ -73,7 +73,7 @@ Frame times in the HUD and from **Measure orbit** are real `requestAnimationFram
 
 - `src/lib/core` — document, commands, history, graph index
 - `src/lib/io` — Valibot schema, integrity repair, migrations, canonical JSON
-- `src/lib/input/spatial.ts` — screen-space cone scoring for arrow keys
+- `src/lib/input/spatial.ts` — one screen-space score for arrow keys (angle, screen distance, depth, link bonus)
 - `src/lib/scene` — Three.js view and the dummy stress map
 - `samples/urban-flooding.mindmap3d` — the section 7.2 sample, canonical JSON
 

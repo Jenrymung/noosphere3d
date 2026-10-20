@@ -387,6 +387,8 @@ export function createMindMapScene(
       text.anchorX = "center" as unknown as number;
       text.anchorY = "bottom" as unknown as number;
       text.color = 0xf4f7fb;
+      // Troika SDF with an outline is the default. A rounded plate behind the
+      // title is deferred to v1. CSS2D stays as the other label mode.
       text.outlineWidth = "8%" as unknown as number;
       text.outlineColor = 0x081018;
       text.position.set(position.x, position.y + scale * 0.55 + 0.05, position.z);
@@ -493,7 +495,11 @@ export function createMindMapScene(
       if (node.id === selectedId) continue;
       const screen = screenOf(node.position);
       if (!screen || screen.behind) continue;
-      candidates.push({ id: node.id, screen: { x: screen.x, y: screen.y, depth: screen.depth } });
+      candidates.push({
+        id: node.id,
+        screen: { x: screen.x, y: screen.y, depth: screen.depth },
+        linked: neighbourIds.has(node.id),
+      });
     }
     const result = chooseSpatialTarget({
       currentId: selectedId,

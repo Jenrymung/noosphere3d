@@ -3,8 +3,10 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { generateKeyBetween } from "fractional-indexing";
+import { createEmptyMap } from "../core/document";
 import { MapSession } from "../core/session";
 import { nodeTitle } from "../core/title";
+import { CURRENT_MINOR, CURRENT_VERSION } from "../core/types";
 import { checkInvariants } from "./integrity";
 import { loadMap } from "./load";
 import { urbanFloodingDocument } from "./sampleMap";
@@ -146,26 +148,83 @@ describe("migrations", () => {
     expect(checkInvariants(loaded.doc)).toEqual([]);
   });
 
-  it("opens a newer but still readable file as read-only", () => {
+  it("refuses a file made with a newer major version and does not change it", () => {
     const doc = urbanFloodingDocument();
-    doc.version = 9;
-    const loaded = loadMap(doc);
-    expect(loaded.readOnly).toBe(true);
-    expect(loaded.warnings[0].code).toBe("newer-version");
-    const session = MapSession.load(doc);
-    expect(() =>
-      session.dispatch({
-        type: "editText",
-        target: "node",
-        id: "n-flood",
-        text: "nope",
-      }),
-    ).toThrow(/read-only/);
+    doc.version = 2;
+    const before = JSON.stringify(doc);
+    expect(() => loadMap(doc)).toThrow(/made with a newer version/);
+    expect(() => MapSession.load(doc)).toThrow(/made with a newer version/);
+    expect(JSON.stringify(doc)).toBe(before);
+  });
+
+  it("opens a newer minor version and round-trips unknown fields", () => {
+    const raw = JSON.parse(serialize(urbanFloodingDocument())) as Record<string, unknown>;
+    raw.minor = 4;
+    raw.reviewNote = { keep: true };
+    const nodes = raw.nodes as Record<string, Record<string, unknown>>;
+    nodes["n-flood"].glow = "soft";
+    (nodes["n-flood"].position as Record<string, unknown>).anchor = "centre";
+    const links = raw.links as Record<string, Record<string, unknown>>;
+    links.l1.weight = 3;
+    const waypoints = (links.l3.waypoints as Record<string, Record<string, unknown>>);
+    waypoints["w-01"].note = "bend";
+    const types = raw.linkTypes as Record<string, Record<string, unknown>>;
+    types.causes.emphasis = "high";
+    (raw.meta as Record<string, unknown>).editor = "planner";
+    (raw.settings as Record<string, unknown>).grid = 0.5;
+
+    const loaded = loadMap(raw);
+    expect(loaded.readOnly).toBe(false);
+    expect(loaded.doc.version).toBe(CURRENT_VERSION);
+    expect(loaded.doc.minor).toBe(4);
+    expect(loaded.doc.minor).toBeGreaterThan(CURRENT_MINOR);
+    const session = MapSession.load(raw);
+    session.dispatch({
+      type: "editText",
+      target: "node",
+      id: "n-rain",
+      text: "# Heavy rain\nStill the same map.",
+    });
+    const saved = JSON.parse(serialize(session.doc)) as Record<string, unknown>;
+    expect(saved.minor).toBe(4);
+    expect(saved.reviewNote).toEqual({ keep: true });
+    expect((saved.nodes as Record<string, Record<string, unknown>>)["n-flood"].glow).toBe("soft");
+    expect(
+      ((saved.nodes as Record<string, { position: Record<string, unknown> }>)["n-flood"].position).anchor,
+    ).toBe("centre");
+    expect((saved.links as Record<string, Record<string, unknown>>).l1.weight).toBe(3);
+    expect(
+      ((saved.links as Record<string, { waypoints: Record<string, Record<string, unknown>> }>).l3.waypoints)["w-01"]
+        .note,
+    ).toBe("bend");
+    expect((saved.linkTypes as Record<string, Record<string, unknown>>).causes.emphasis).toBe("high");
+    expect((saved.meta as Record<string, unknown>).editor).toBe("planner");
+    expect((saved.settings as Record<string, unknown>).grid).toBe(0.5);
+    expect(serialize(loadMap(JSON.parse(serialize(session.doc))).doc)).toBe(serialize(session.doc));
   });
 
   it("rejects a corrupt file without throwing a raw parser exception", () => {
     expect(() => loadMap({ format: "other", version: 1 })).toThrow(/mindmap3d/);
     expect(() => loadMap("nope")).toThrow(/JSON object/);
+  });
+});
+
+const STARTER_TYPES = [
+  ["relates-to", "relates to"],
+  ["causes", "leads to / causes"],
+  ["part-of", "part of"],
+  ["depends-on", "depends on"],
+  ["contradicts", "contradicts"],
+  ["example-of", "example of"],
+  ["supports", "supports"],
+] as const;
+
+describe("starter link types", () => {
+  it.each(STARTER_TYPES)("a brand-new map includes %s (%s)", (id, name) => {
+    const doc = createEmptyMap({ id: "fresh", now: "2026-10-20T00:00:00.000Z" });
+    expect(Object.keys(doc.linkTypes)).toHaveLength(STARTER_TYPES.length);
+    expect(doc.linkTypes[id]?.name).toBe(name);
+    expect(doc.settings?.defaultLinkTypeId).toBe("relates-to");
   });
 });
 

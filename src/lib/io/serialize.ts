@@ -4,6 +4,7 @@ import type { MapDocument } from "../core/types";
 const TOP_KEYS = [
   "format",
   "version",
+  "minor",
   "id",
   "meta",
   "settings",
@@ -13,6 +14,10 @@ const TOP_KEYS = [
   "links",
   "extensions",
 ] as const;
+
+function asRecord(value: object): Record<string, unknown> {
+  return value as Record<string, unknown>;
+}
 
 function ordered(value: Record<string, unknown>, keyOrder: readonly string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -25,8 +30,8 @@ function ordered(value: Record<string, unknown>, keyOrder: readonly string[]): R
   return out;
 }
 
-function vec(value: { x: number; y: number; z: number }): Record<string, number> {
-  return { x: value.x, y: value.y, z: value.z };
+function vec(value: { x: number; y: number; z: number }): Record<string, unknown> {
+  return ordered({ ...asRecord(value), x: value.x, y: value.y, z: value.z }, ["x", "y", "z"]);
 }
 
 function sortEntries<T extends { order: string }>(record: Record<string, T>): [string, T][] {
@@ -42,6 +47,7 @@ export function toCanonical(doc: MapDocument): Record<string, unknown> {
   for (const [id, type] of sortEntries(doc.linkTypes)) {
     linkTypes[id] = ordered(
       {
+        ...asRecord(type),
         order: type.order,
         name: type.name,
         color: type.color,
@@ -60,12 +66,13 @@ export function toCanonical(doc: MapDocument): Record<string, unknown> {
     const node = doc.nodes[id];
     const style = node.style
       ? ordered(
-          { color: node.style.color, size: node.style.size, icon: node.style.icon },
+          { ...asRecord(node.style), color: node.style.color, size: node.style.size, icon: node.style.icon },
           ["color", "size", "icon"],
         )
       : undefined;
     nodes[id] = ordered(
       {
+        ...asRecord(node),
         title: node.title,
         text: node.text,
         position: vec(node.position),
@@ -83,14 +90,21 @@ export function toCanonical(doc: MapDocument): Record<string, unknown> {
     if (link.waypoints && Object.keys(link.waypoints).length > 0) {
       waypoints = {};
       for (const [wpId, wp] of sortEntries(link.waypoints)) {
-        waypoints[wpId] = { order: wp.order, position: vec(wp.position) };
+        waypoints[wpId] = ordered(
+          { ...asRecord(wp), order: wp.order, position: vec(wp.position) },
+          ["order", "position"],
+        );
       }
     }
     const style = link.style
-      ? ordered({ bow: link.style.bow, labelSegment: link.style.labelSegment }, ["bow", "labelSegment"])
+      ? ordered(
+          { ...asRecord(link.style), bow: link.style.bow, labelSegment: link.style.labelSegment },
+          ["bow", "labelSegment"],
+        )
       : undefined;
     links[id] = ordered(
       {
+        ...asRecord(link),
         source: link.source,
         target: link.target,
         typeId: link.typeId,
@@ -106,6 +120,7 @@ export function toCanonical(doc: MapDocument): Record<string, unknown> {
   const meta = doc.meta
     ? ordered(
         {
+          ...asRecord(doc.meta),
           title: doc.meta.title,
           createdAt: doc.meta.createdAt,
           modifiedAt: doc.meta.modifiedAt,
@@ -116,7 +131,11 @@ export function toCanonical(doc: MapDocument): Record<string, unknown> {
     : undefined;
   const settings = doc.settings
     ? ordered(
-        { defaultLinkTypeId: doc.settings.defaultLinkTypeId, resourcesFolder: doc.settings.resourcesFolder },
+        {
+          ...asRecord(doc.settings),
+          defaultLinkTypeId: doc.settings.defaultLinkTypeId,
+          resourcesFolder: doc.settings.resourcesFolder,
+        },
         ["defaultLinkTypeId", "resourcesFolder"],
       )
     : undefined;
@@ -125,6 +144,7 @@ export function toCanonical(doc: MapDocument): Record<string, unknown> {
     const camera = doc.view.camera
       ? ordered(
           {
+            ...asRecord(doc.view.camera),
             position: vec(doc.view.camera.position),
             target: vec(doc.view.camera.target),
             fov: doc.view.camera.fov,
@@ -135,14 +155,19 @@ export function toCanonical(doc: MapDocument): Record<string, unknown> {
     const filters = doc.view.linkTypeFilters
       ? ordered(doc.view.linkTypeFilters as Record<string, unknown>, Object.keys(doc.view.linkTypeFilters).sort())
       : undefined;
-    view = ordered({ camera, linkTypeFilters: filters }, ["camera", "linkTypeFilters"]);
+    view = ordered(
+      { ...asRecord(doc.view), camera, linkTypeFilters: filters },
+      ["camera", "linkTypeFilters"],
+    );
     if (Object.keys(view).length === 0) view = undefined;
   }
 
   const base = ordered(
     {
+      ...asRecord(doc),
       format: doc.format,
       version: doc.version,
+      minor: doc.minor != null && doc.minor > 0 ? doc.minor : undefined,
       id: doc.id,
       meta: meta && Object.keys(meta).length > 0 ? meta : undefined,
       settings: settings && Object.keys(settings).length > 0 ? settings : undefined,

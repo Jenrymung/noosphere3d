@@ -76,9 +76,17 @@ export const MIGRATIONS: Migration[] = [
 export interface MigrationTrace {
   from: number;
   applied: string[];
-  /** True when the file is newer than this app and was not migrated. */
-  newer: boolean;
+  /** True when the file's major version is newer than this app. Do not open or write it. */
+  newerMajor: boolean;
   value: unknown;
+}
+
+function minorVersion(value: unknown): number {
+  if (value == null) return 0;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new MapLoadError("Map minor version must be a non-negative integer");
+  }
+  return value;
 }
 
 export function migrateToCurrent(input: unknown): MigrationTrace {
@@ -88,8 +96,10 @@ export function migrateToCurrent(input: unknown): MigrationTrace {
     throw new MapLoadError("Map file is missing an integer version");
   }
   if (input.version > CURRENT_VERSION) {
-    return { from: input.version, applied: [], newer: true, value: input };
+    return { from: input.version, applied: [], newerMajor: true, value: input };
   }
+  // A newer minor is not a migration. Load opens the file, and save writes unknown fields back.
+  minorVersion(input.minor);
   let value: unknown = input;
   let version = input.version;
   const applied: string[] = [];
@@ -103,5 +113,5 @@ export function migrateToCurrent(input: unknown): MigrationTrace {
       throw new MapLoadError(`Migration ${step.name} did not produce version ${version}`);
     }
   }
-  return { from: input.version, applied, newer: false, value };
+  return { from: input.version, applied, newerMajor: false, value };
 }

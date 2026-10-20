@@ -160,7 +160,11 @@ export function repairDocument(doc: MapDocument): Issue[] {
     taken.add(nextId);
     nodeIdMap.set(id, nextId);
     if (typeof node.text !== "string") node.text = node.text == null ? "" : String(node.text);
-    node.position = repairVec(node.position, { x: 0, y: 0, z: 0 }, warnings, `Node "${nextId}"`);
+    if (isFiniteVec(node.position)) {
+      node.position = { ...node.position, x: node.position.x, y: node.position.y, z: node.position.z };
+    } else {
+      node.position = repairVec(node.position, { x: 0, y: 0, z: 0 }, warnings, `Node "${nextId}"`);
+    }
     repairTitle(node, warnings, `Node "${nextId}"`);
     if (node.pinned !== true) delete node.pinned;
     if (node.style) {
@@ -174,7 +178,7 @@ export function repairDocument(doc: MapDocument): Issue[] {
           delete node.style.size;
         }
         if (node.style.icon != null && typeof node.style.icon !== "string") delete node.style.icon;
-        if (node.style.color == null && node.style.size == null && node.style.icon == null) delete node.style;
+        if (Object.keys(node.style).length === 0) delete node.style;
       }
     }
     nextNodes[nextId] = node;
@@ -229,8 +233,9 @@ export function repairDocument(doc: MapDocument): Issue[] {
             continue;
           }
           kept[wpId] = {
+            ...wp,
             order: isOrderKey(wp.order) ? wp.order : "",
-            position: { x: wp.position.x, y: wp.position.y, z: wp.position.z },
+            position: { ...wp.position, x: wp.position.x, y: wp.position.y, z: wp.position.z },
           };
         }
         repairOrder(kept, warnings, `Waypoint on "${nextId}"`);
@@ -259,7 +264,7 @@ export function repairDocument(doc: MapDocument): Issue[] {
         ) {
           delete link.style.labelSegment;
         }
-        if (link.style.bow == null && link.style.labelSegment == null) delete link.style;
+        if (Object.keys(link.style).length === 0) delete link.style;
       }
     }
     nextLinks[nextId] = link;
@@ -341,6 +346,9 @@ export function checkInvariants(doc: MapDocument): Issue[] {
 
   if (doc.format !== "mindmap3d") fail("format", "format must be mindmap3d");
   if (!Number.isInteger(doc.version) || doc.version < 1) fail("version", "version must be an integer >= 1");
+  if (doc.minor != null && (!Number.isInteger(doc.minor) || doc.minor < 0)) {
+    fail("minor", "minor version must be a non-negative integer");
+  }
   const typeIds = Object.keys(doc.linkTypes);
   if (typeIds.length === 0) fail("link-types", "A map needs at least one link type");
 

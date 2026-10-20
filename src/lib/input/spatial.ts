@@ -13,22 +13,37 @@ export interface ScreenPoint {
 export interface SpatialCandidate {
   id: string;
   screen: ScreenPoint;
+  /** True when this node shares a link with the selection. */
+  linked?: boolean;
 }
 
 export const SPATIAL_CONE_DEG = 60;
 export const SPATIAL_WIDE_DEG = 90;
-/** Alignment penalty. k ≈ 2, from the plan. */
-export const SPATIAL_ALIGNMENT_K = 2;
-/** How much a depth gap inflates the score. Small on purpose. */
-export const SPATIAL_DEPTH_WEIGHT = 0.35;
-export const SPATIAL_DEPTH_CHARACTERISTIC = 8;
+
 /**
- * A node that is much deeper but barely moves on screen lies along the same
- * view ray. It is not "the node to the right". Distance is in CSS pixels and
- * depth is in world units, so the ratio is only a screen-space guard.
+ * One score, lowest wins. Every term lives here so the ranking can be tuned
+ * without a second rejection rule.
+ * Angle and screen distance pull toward the arrow. Depth is strong enough that
+ * a far node sitting on the selection loses to a nearer one. Link is a bonus
+ * (a multiplier below 1) for a node directly connected to the selection.
  */
-export const SPATIAL_ALIAS_DEPTH = 8;
-export const SPATIAL_ALIAS_PX_PER_DEPTH = 1.6;
+export interface SpatialWeights {
+  angle: number;
+  screen: number;
+  depth: number;
+  /** World units that count as one step of the depth penalty. */
+  depthStep: number;
+  /** Score multiplier for a node linked to the selection. */
+  link: number;
+}
+
+export const SPATIAL_WEIGHTS: SpatialWeights = {
+  angle: 5,
+  screen: 1,
+  depth: 3,
+  depthStep: 8,
+  link: 0.38,
+};
 
 const DIRECTION: Record<ArrowDirection, { x: number; y: number }> = {
   left: { x: -1, y: 0 },
@@ -54,7 +69,7 @@ export interface SpatialNavInput {
   previousDirection?: ArrowDirection | null;
   coneDeg?: number;
   widenDeg?: number;
-  k?: number;
+  weights?: Partial<SpatialWeights>;
 }
 
 export interface SpatialNavResult {
@@ -72,16 +87,26 @@ function angleBetween(dx: number, dy: number, direction: ArrowDirection): number
   return Math.acos(Math.min(1, Math.max(-1, dot)));
 }
 
-function scoreCandidate(current: ScreenPoint, candidate: SpatialCandidate, theta: number, k: number): number {
+function resolveWeights(override?: Partial<SpatialWeights>): SpatialWeights {
+  return { ...SPATIAL_WEIGHTS, ...override };
+}
+
+/** Lowest score wins. The 60° denominator stays put when the cone widens to 90°. */
+export function scoreSpatialCandidate(
+  current: ScreenPoint,
+  candidate: SpatialCandidate,
+  theta: number,
+  weights: SpatialWeights = SPATIAL_WEIGHTS,
+): number {
   const dx = candidate.screen.x - current.x;
   const dy = candidate.screen.y - current.y;
   const distance = Math.hypot(dx, dy);
-  // The plan's denominator stays 60° even after the cone widens to 90°.
   const coneRad = (SPATIAL_CONE_DEG * Math.PI) / 180;
-  const alignment = 1 + k * (theta / coneRad) ** 2;
+  const alignment = 1 + weights.angle * (theta / coneRad) ** 2;
   const depthGap = Math.abs(candidate.screen.depth - current.depth);
-  const depthFactor = 1 + SPATIAL_DEPTH_WEIGHT * Math.min(3, depthGap / SPATIAL_DEPTH_CHARACTERISTIC);
-  return distance * alignment * depthFactor;
+  const depthFactor = 1 + weights.depth * (depthGap / weights.depthStep);
+  const linkFactor = candidate.linked ? weights.link : 1;
+  return distance * weights.screen * alignment * depthFactor * linkFactor;
 }
 
 /**
@@ -91,7 +116,7 @@ function scoreCandidate(current: ScreenPoint, candidate: SpatialCandidate, theta
 export function chooseSpatialTarget(input: SpatialNavInput): SpatialNavResult {
   const coneDeg = input.coneDeg ?? SPATIAL_CONE_DEG;
   const widenDeg = input.widenDeg ?? SPATIAL_WIDE_DEG;
-  const k = input.k ?? SPATIAL_ALIGNMENT_K;
+  const weights = resolveWeights(input.weights);
 
   if (
     input.previousId &&
@@ -102,14 +127,14 @@ export function chooseSpatialTarget(input: SpatialNavInput): SpatialNavResult {
     return { nextId: input.previousId, bumped: false, widened: false, reversed: true };
   }
 
-  const picked = pickCone(input, coneDeg, k);
+  const picked = pickCone(input, coneDeg, weights);
   if (picked) return { nextId: picked, bumped: false, widened: false, reversed: false };
-  const wide = pickCone(input, widenDeg, k);
+  const wide = pickCone(input, widenDeg, weights);
   if (wide) return { nextId: wide, bumped: false, widened: true, reversed: false };
   return { nextId: null, bumped: true, widened: true, reversed: false };
 }
 
-function pickCone(input: SpatialNavInput, coneDeg: number, k: number): string | null {
+function pickCone(input: SpatialNavInput, coneDeg: number, weights: SpatialWeights): string | null {
   const coneRad = (coneDeg * Math.PI) / 180;
   let bestId: string | null = null;
   let bestScore = Infinity;
@@ -119,11 +144,9 @@ function pickCone(input: SpatialNavInput, coneDeg: number, k: number): string | 
     const dy = candidate.screen.y - input.current.y;
     const distance = Math.hypot(dx, dy);
     if (distance < 1) continue;
-    const depthGap = Math.abs(candidate.screen.depth - input.current.depth);
-    if (depthGap > SPATIAL_ALIAS_DEPTH && distance < depthGap * SPATIAL_ALIAS_PX_PER_DEPTH) continue;
     const theta = angleBetween(dx, dy, input.direction);
     if (theta > coneRad + 1e-8) continue;
-    const score = scoreCandidate(input.current, candidate, theta, k);
+    const score = scoreSpatialCandidate(input.current, candidate, theta, weights);
     if (score < bestScore - 1e-6 || (Math.abs(score - bestScore) <= 1e-6 && (bestId === null || candidate.id < bestId))) {
       bestScore = score;
       bestId = candidate.id;
