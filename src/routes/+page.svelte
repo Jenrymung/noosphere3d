@@ -1,12 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { produce } from "immer";
   import "@fontsource/source-sans-3/400.css";
+  import { freshTrack, markEdited, markSaved, promptFor, resolveTheme, statusFor, ensureSuffix, tabTitle, windowTitle, type SaveTrack } from "$lib/app/tabState";
   import { createId } from "$lib/core/document";
   import { MapSession } from "$lib/core/session";
   import { linkLabel, nodeTitle } from "$lib/core/title";
   import type { LinkTypeFilter, MapDocument, Vec3 } from "$lib/core/types";
   import ReaderPanel from "$lib/editor/ReaderPanel.svelte";
   import type { TypeDraft } from "$lib/input/linkForm";
+  import { linkPointerConfirm } from "$lib/input/linkClick";
   import { modEnterAction } from "$lib/input/modEnter";
   import {
     cycleTypeId,
@@ -23,7 +26,11 @@
     typeRows,
     withFilter,
   } from "$lib/input/linkOps";
+  import { createFileBridge, createMemoryBridge, type FileBridge, type RecoveryItem } from "$lib/io/bridge";
+  import { DEFAULT_PREFERENCES, normalizePreferences, type Preferences } from "$lib/io/preferences";
   import { urbanFloodingDocument } from "$lib/io/sampleMap";
+  import { serialize } from "$lib/io/serialize";
+  import { shouldAutosave, shouldRotateBackup, shouldWriteRecovery } from "$lib/io/saveController";
   import {
     createMindMapScene,
     type BenchRow,
@@ -33,10 +40,19 @@
   } from "$lib/scene/createScene";
   import { stressMap } from "$lib/scene/dummyMap";
   import { placeNode } from "$lib/scene/placement";
+  import FileDialogs, { type AppDialog } from "$lib/ui/FileDialogs.svelte";
   import LinkChrome from "$lib/ui/LinkChrome.svelte";
+  import PreferencesPanel from "$lib/ui/PreferencesPanel.svelte";
+  import TabStrip from "$lib/ui/TabStrip.svelte";
 
   type Target = { kind: "node" | "link"; id: string };
   type MapKind = "stress" | "sample" | "new";
+  type Overlay =
+    | { name: "picker"; purpose: "new-link" | "shift-tab" | "retarget" }
+    | { name: "legend" }
+    | { name: "manager" }
+    | { name: "search" }
+    | { name: "follow" };
 
   let host = $state<HTMLDivElement | null>(null);
   let hud = $state<HudSnapshot>({
@@ -59,18 +75,53 @@
     status: "Starting",
     prepMs: null,
   });
-  const openingSession = MapSession.load(stressMap());
+  type Chrome = {
+    panel: "closed" | "read" | "edit";
+    pinned: boolean;
+    shown: Target | null;
+    editFromReader: boolean;
+    lastTypeId: string;
+    linkMode: { sourceId: string; targetId: string | null; typeId: string | null } | null;
+    screen: Overlay | null;
+    activeTypeId: string | null;
+    mapKind: MapKind;
+    pose: { position: Vec3; target: Vec3 } | null;
+  };
+  type ShelfEntry = { session: MapSession; chrome: Chrome };
+  type ClosedTab = ShelfEntry & { save: SaveTrack };
+
+  function makeBlank(): MapSession {
+    const next = MapSession.create({ title: "Untitled map" });
+    const id = createId();
+    next.dispatch({ type: "addNode", id, node: { text: "", position: { x: 0, y: 0, z: 0 } } });
+    next.selection = { nodeId: id, linkId: null };
+    return next;
+  }
+
+  const shelf = new Map<string, ShelfEntry>();
+  const saves = new Map<string, SaveTrack>();
+  const closedStack: ClosedTab[] = [];
+  const openingSession = makeBlank();
+  const openingId = createId();
+  saves.set(openingId, freshTrack(openingId, { edited: true }));
   let session = $state(openingSession);
+  let activeId = $state(openingId);
+  let tabOrder = $state<string[]>([openingId]);
+  let pulse = $state(0);
+  let preferences = $state({ ...DEFAULT_PREFERENCES });
+  let prefsOpen = $state(false);
+  let dialog = $state<AppDialog | null>(null);
+  let bridge: FileBridge = createMemoryBridge();
   let doc = $state(openingSession.doc);
   let revision = $state(0);
-  let mapKind = $state<MapKind>("stress");
+  let mapKind = $state<MapKind>("new");
   let bench = $state<BenchRow[] | null>(null);
   let benching = $state(false);
   let panel = $state<"closed" | "read" | "edit">("closed");
   let pinned = $state(false);
   let editFromReader = $state(false);
   let shown = $state<Target | null>(null);
-  let lastTypeId = "relates-to";
+  let lastTypeId = $state("relates-to");
   let editToken = $state(0);
   let focusToken = $state(0);
   let editSeed = $state({ text: "", title: "", placeholder: "Untitled" });
@@ -79,18 +130,14 @@
   let pendingText: string | null = null;
   let pendingTitle: string | null = null;
   let linkMode = $state<{ sourceId: string; targetId: string | null; typeId: string | null } | null>(null);
-  let screen = $state<
-    | { name: "picker"; purpose: "new-link" | "shift-tab" | "retarget" }
-    | { name: "legend" }
-    | { name: "manager" }
-    | { name: "search" }
-    | { name: "follow" }
-    | null
-  >(null);
+  let screen = $state<Overlay | null>(null);
   let followRows = $state<{ key: string; label: string; nodeId: string }[]>([]);
-  let skipPicker = $state(false);
-  let dimLonely = $state(false);
   let activeTypeId = $state<string | null>(null);
+  let pendingClose: string | null = null;
+  let closeQueue: string[] = [];
+  let quitAfterClose = false;
+  let quitting = false;
+  let pathWait: ((path: string | null) => void) | null = null;
 
   const canUndo = $derived.by(() => {
     revision;
@@ -124,6 +171,24 @@
     revision;
     return session.doc.view?.linkTypeFilters ?? {};
   });
+  const strip = $derived.by(() => {
+    pulse;
+    revision;
+    preferences.saveMode;
+    return tabOrder.map((id) => {
+      const sess = id === activeId ? session : shelf.get(id)?.session;
+      const track = saves.get(id);
+      const status = track && sess ? statusFor(track, preferences, sess.history.stateId) : { mark: "", text: "" };
+      return { id, title: tabTitle(sess?.doc.meta.title), mark: status.mark };
+    });
+  });
+  const fileStatus = $derived.by(() => {
+    pulse;
+    revision;
+    preferences.saveMode;
+    const track = saves.get(activeId);
+    return track ? statusFor(track, preferences, session.history.stateId).text : "";
+  });
 
   function publish(next: HudSnapshot) {
     hud = next;
@@ -134,9 +199,69 @@
     queueMicrotask(() => scene?.focusCanvas());
   }
 
-  function bump() {
+  function touch() {
+    pulse += 1;
+  }
+
+  function sessionFor(id: string): MapSession | null {
+    if (id === activeId) return session;
+    return shelf.get(id)?.session ?? null;
+  }
+
+  function poseFor(id: string): { position: Vec3; target: Vec3 } | null {
+    if (id === activeId) return scene?.getPose() ?? null;
+    return shelf.get(id)?.chrome.pose ?? null;
+  }
+
+  function snapshotText(sess: MapSession, pose: { position: Vec3; target: Vec3 } | null): string {
+    const copy = produce(sess.doc, (draft) => {
+      if (!pose) return;
+      draft.view ??= {};
+      draft.view.camera = { position: { ...pose.position }, target: { ...pose.target } };
+    });
+    return serialize(copy);
+  }
+
+  function noteEdit() {
+    const track = saves.get(activeId);
+    if (!track) return;
+    markEdited(track, session.history.stateId, Date.now());
+    touch();
+    void refreshTitle();
+  }
+
+  function bump(edited = true) {
     doc = session.doc;
     revision += 1;
+    if (edited) noteEdit();
+    else touch();
+  }
+
+  function systemDark() {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+
+  function paintPreferences(next: Preferences) {
+    preferences = next;
+    const theme = resolveTheme(next.theme, systemDark());
+    document.documentElement.dataset.theme = theme;
+    scene?.setDimLonely(next.dimLonely);
+    scene?.setLabelScale(next.labelScale);
+    scene?.setReduceMotion(next.reduceMotion);
+    scene?.setBackdrop(theme === "light" ? "#f4f1ea" : "#101820");
+    touch();
+  }
+
+  function updatePreferences(next: Preferences) {
+    const normalized = normalizePreferences(next);
+    paintPreferences(normalized);
+    void bridge.savePreferences(normalized);
+  }
+
+  async function refreshTitle() {
+    const track = saves.get(activeId);
+    const status = track ? statusFor(track, preferences, session.history.stateId) : { mark: "", text: "" };
+    await bridge.setTitle(windowTitle(status.mark, tabTitle(session.doc.meta.title)));
   }
 
   function fail(error: unknown) {
@@ -542,7 +667,7 @@
       return;
     }
     const fallback = session.doc.linkTypes[lastTypeId] ? lastTypeId : defaultTypeId;
-    const decision = linkCommit(linkMode.typeId, skipPicker, fallback);
+    const decision = linkCommit(linkMode.typeId, preferences.skipPicker, fallback);
     if (decision.kind === "pick") screen = { name: "picker", purpose: "new-link" };
     else createLink(decision.typeId);
   }
@@ -575,7 +700,7 @@
 
   function applyFilters(next: Record<string, LinkTypeFilter>) {
     session.setLinkFilters(next);
-    bump();
+    bump(false);
     scene?.sync(session.doc, "links");
   }
 
@@ -888,10 +1013,6 @@
     refreshCursor();
   }
 
-  function onSkipPicker(on: boolean) {
-    skipPicker = on;
-  }
-
   function onFollow(index: number) {
     const row = followRows[index];
     screen = null;
@@ -935,38 +1056,642 @@
     scene?.sync(session.doc, "structure");
   }
 
-  function resetChrome(nextKind: MapKind, next: MapSession) {
-    if (panel === "edit") leaveEdit();
-    session = next;
+  function captureChrome(): Chrome {
+    return {
+      panel,
+      pinned,
+      shown: shown ? { ...shown } : null,
+      editFromReader,
+      lastTypeId,
+      linkMode: linkMode ? { ...linkMode } : null,
+      screen: screen ? { ...screen } : null,
+      activeTypeId,
+      mapKind,
+      pose: scene?.getPose() ?? null,
+    };
+  }
+
+  function restoreChrome(chrome: Chrome) {
+    panel = chrome.panel === "edit" ? (chrome.pinned ? "read" : "closed") : chrome.panel;
+    pinned = chrome.pinned;
+    shown = chrome.shown;
+    editFromReader = false;
+    lastTypeId = chrome.lastTypeId;
+    linkMode = chrome.linkMode;
+    screen = chrome.screen;
+    activeTypeId = chrome.activeTypeId;
+    mapKind = chrome.mapKind;
+    bench = null;
+  }
+
+  function showSession(nextKind: MapKind, pose: Chrome["pose"]) {
     doc = session.doc;
     revision += 1;
     mapKind = nextKind;
+    scene?.setLinkMode(linkMode !== null);
+    scene?.load(session.doc);
+    if (pose) scene?.setPose(pose);
+    scene?.applySelection(session.selection);
+    scene?.setDimLonely(preferences.dimLonely);
+    if (linkMode) refreshCursor();
+    touch();
+    void refreshTitle();
+  }
+
+  function openTab(next: MapSession, track: SaveTrack, kind: MapKind, edit: boolean) {
+    if (panel === "edit") leaveEdit();
+    shelf.set(activeId, { session, chrome: captureChrome() });
+    const id = createId();
+    saves.set(id, track);
+    tabOrder = [...tabOrder, id];
+    activeId = id;
+    session = next;
     panel = "closed";
     pinned = false;
     shown = null;
     editFromReader = false;
-    lastTypeId = session.doc.settings.defaultLinkTypeId ?? "relates-to";
+    lastTypeId = next.doc.settings.defaultLinkTypeId ?? "relates-to";
     linkMode = null;
     screen = null;
     activeTypeId = null;
-    skipPicker = false;
-    dimLonely = false;
-    bench = null;
-    scene?.setLinkMode(false);
-    scene?.setDimLonely(false);
-    scene?.load(session.doc);
+    showSession(kind, null);
+    if (edit) editFirstNode();
+  }
+
+  function editFirstNode() {
+    const nodeId = session.selection.nodeId ?? Object.keys(session.doc.nodes)[0] ?? null;
+    if (!nodeId) return;
+    scene?.selectNode(nodeId);
+    beginEdit(false);
+  }
+
+  function activate(id: string) {
+    if (id === activeId || !shelf.has(id)) return;
+    if (panel === "edit") leaveEdit();
+    const next = shelf.get(id);
+    if (!next) return;
+    shelf.set(activeId, { session, chrome: captureChrome() });
+    shelf.delete(id);
+    activeId = id;
+    session = next.session;
+    restoreChrome(next.chrome);
+    showSession(next.chrome.mapKind, next.chrome.pose);
   }
 
   function chooseMap(id: "stress" | "sample") {
-    resetChrome(id, MapSession.load(id === "stress" ? stressMap() : urbanFloodingDocument()));
+    const next = MapSession.load(id === "stress" ? stressMap() : urbanFloodingDocument());
+    const track = freshTrack(createId());
+    track.savedStateId = next.history.stateId;
+    openTab(next, track, id, false);
   }
 
   function newMap() {
-    resetChrome("new", MapSession.create({ title: "Untitled map" }));
+    openTab(makeBlank(), freshTrack(createId(), { edited: true }), "new", true);
   }
 
   function toggleMap() {
     chooseMap(mapKind === "sample" ? "stress" : "sample");
+  }
+
+  function tabIdForPath(path: string): string | null {
+    for (const id of tabOrder) if (saves.get(id)?.path === path) return id;
+    return null;
+  }
+
+  function askPath(purpose: "open" | "save", suggested: string, files: string[]): Promise<string | null> {
+    return new Promise((resolve) => {
+      pathWait = resolve;
+      dialog = { kind: "path", purpose, suggested, files };
+    });
+  }
+
+  async function writeRecovery(id: string) {
+    const sess = sessionFor(id);
+    const track = saves.get(id);
+    if (!sess || !track) return;
+    const now = Date.now();
+    const clock = {
+      mode: preferences.saveMode,
+      path: track.path,
+      dirty: sess.history.stateId !== track.savedStateId,
+      paused: track.paused,
+      conflict: track.conflict,
+      saving: track.saving,
+      lastEditAt: track.lastEditAt,
+      burstStartedAt: track.burstStartedAt,
+      lastAutosaveAt: track.lastAutosaveAt,
+      lastRecoveryAt: track.lastRecoveryAt,
+      lastBackupAt: track.lastBackupAt,
+      savedAt: track.lastSavedAt,
+      delayMs: preferences.autosaveDelayMs,
+      maxIntervalMs: preferences.autosaveMaxIntervalMs,
+      recoveryIdleMs: preferences.recoveryIdleMs,
+      recoveryMaxMs: preferences.recoveryMaxMs,
+    };
+    if (!shouldWriteRecovery(clock, now)) return;
+    const record: RecoveryItem = {
+      id: track.recoveryId,
+      savedAt: new Date(now).toISOString(),
+      title: tabTitle(sess.doc.meta.title),
+      path: track.path,
+      mapText: snapshotText(sess, poseFor(id)),
+    };
+    const outcome = await bridge.writeRecovery(record);
+    if (outcome.kind === "ok") {
+      track.lastRecoveryAt = now;
+      touch();
+    } else if (outcome.kind === "newer-major") {
+      track.paused = true;
+      touch();
+    }
+  }
+
+  async function saveTab(id: string, reason: "manual" | "autosave" | "close"): Promise<boolean> {
+    const sess = sessionFor(id);
+    const track = saves.get(id);
+    if (!sess || !track) return false;
+    if (!track.path) return false;
+    const now = Date.now();
+    const dirty = sess.history.stateId !== track.savedStateId;
+    const clock = {
+      mode: preferences.saveMode,
+      path: track.path,
+      dirty,
+      paused: track.paused,
+      conflict: track.conflict,
+      saving: track.saving,
+      lastEditAt: track.lastEditAt,
+      burstStartedAt: track.burstStartedAt,
+      lastAutosaveAt: track.lastAutosaveAt,
+      lastRecoveryAt: track.lastRecoveryAt,
+      lastBackupAt: track.lastBackupAt,
+      savedAt: track.lastSavedAt,
+      delayMs: preferences.autosaveDelayMs,
+      maxIntervalMs: preferences.autosaveMaxIntervalMs,
+      recoveryIdleMs: preferences.recoveryIdleMs,
+      recoveryMaxMs: preferences.recoveryMaxMs,
+    };
+    if (reason !== "manual" && !shouldAutosave(clock, now, reason === "close" ? "close" : "tick")) return !dirty;
+    if (track.saving) return false;
+    track.saving = true;
+    touch();
+    const rotate = shouldRotateBackup(clock, now);
+    const outcome = await bridge.save({
+      path: track.path,
+      text: snapshotText(sess, poseFor(id)),
+      expected: track.stamp,
+      rotateBackup: rotate,
+      backupKeep: preferences.backupKeep,
+      backupLocation: preferences.backupLocation,
+    });
+    track.saving = false;
+    if (outcome.kind === "ok") {
+      markSaved(track, sess.history.stateId, outcome.stamp, now, rotate);
+      await bridge.deleteRecovery(track.recoveryId);
+      touch();
+      void refreshTitle();
+      return true;
+    }
+    track.paused = true;
+    if (outcome.kind === "external-change") {
+      track.conflict = true;
+      dialog = { kind: "conflict", path: track.path };
+    } else if (outcome.kind === "newer-major") {
+      dialog = { kind: "notice", message: "This map was made with a newer version of the app. Please update to open it." };
+    } else {
+      track.error = outcome.message;
+      dialog = { kind: "failure", message: outcome.message };
+    }
+    touch();
+    void refreshTitle();
+    return false;
+  }
+
+  async function saveAs(id: string): Promise<boolean> {
+    const sess = sessionFor(id);
+    const track = saves.get(id);
+    if (!sess || !track) return false;
+    const suggested = `${tabTitle(sess.doc.meta.title)}.mindmap3d`;
+    let path = bridge.native ? await bridge.pickSave(suggested) : null;
+    if (!path) {
+      const files = await bridge.listFiles();
+      path = await askPath("save", suggested, files);
+    }
+    if (!path) return false;
+    path = ensureSuffix(path);
+    const other = tabIdForPath(path);
+    if (other && other !== id) {
+      activate(other);
+      scene?.flash("That file is already open");
+      return false;
+    }
+    track.path = path;
+    track.stamp = null;
+    track.conflict = false;
+    return saveTab(id, "manual");
+  }
+
+  async function saveActive() {
+    const track = saves.get(activeId);
+    if (!track) return;
+    if (!track.path) await saveAs(activeId);
+    else await saveTab(activeId, "manual");
+  }
+
+  async function openFromPath(path: string) {
+    const existing = tabIdForPath(path);
+    if (existing) {
+      activate(existing);
+      return;
+    }
+    try {
+      const read = await bridge.read(path);
+      const next = MapSession.load(JSON.parse(read.text) as unknown);
+      const track = freshTrack(createId());
+      track.path = path;
+      track.stamp = read.stamp;
+      track.savedStateId = next.history.stateId;
+      track.lastSavedAt = read.stamp.modifiedMs;
+      const untouched = tabOrder.length === 1 && !saves.get(activeId)?.path && session.history.stateId <= 1;
+      openTab(next, track, "sample", false);
+      if (untouched) dropTab(tabOrder[0], false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "That file could not be opened";
+      dialog = { kind: "notice", message };
+    }
+  }
+
+  async function openDialog() {
+    let path = bridge.native ? await bridge.pickOpen() : null;
+    if (!path) {
+      const files = await bridge.listFiles();
+      path = await askPath("open", "", files);
+    }
+    if (path) await openFromPath(ensureSuffix(path));
+  }
+
+  function dropTab(id: string, remember: boolean) {
+    const track = saves.get(id);
+    const entry = id === activeId ? { session, chrome: captureChrome() } : shelf.get(id);
+    if (remember && entry && track) {
+      closedStack.push({ ...entry, save: { ...track } });
+      if (closedStack.length > 12) closedStack.shift();
+    }
+    if (track) void bridge.deleteRecovery(track.recoveryId);
+    shelf.delete(id);
+    saves.delete(id);
+    const nextOrder = tabOrder.filter((item) => item !== id);
+    if (nextOrder.length === 0) {
+      const blank = makeBlank();
+      const nid = createId();
+      saves.set(nid, freshTrack(nid, { edited: true }));
+      tabOrder = [nid];
+      activeId = nid;
+      session = blank;
+      panel = "closed";
+      pinned = false;
+      shown = null;
+      linkMode = null;
+      screen = null;
+      showSession("new", null);
+      editFirstNode();
+      return;
+    }
+    tabOrder = nextOrder;
+    if (id === activeId) {
+      const neighbor = nextOrder[nextOrder.length - 1];
+      const next = shelf.get(neighbor);
+      shelf.delete(neighbor);
+      activeId = neighbor;
+      if (next) {
+        session = next.session;
+        restoreChrome(next.chrome);
+        showSession(next.chrome.mapKind, next.chrome.pose);
+      }
+    } else touch();
+  }
+
+  async function requestClose(id: string) {
+    const sess = sessionFor(id);
+    const track = saves.get(id);
+    if (!sess || !track) return;
+    if (preferences.saveMode === "autosave" && track.path && !track.paused && !track.conflict) {
+      const ok = await saveTab(id, "close");
+      if (ok) dropTab(id, true);
+      return;
+    }
+    if (promptFor(track, preferences, sess.history.stateId)) {
+      pendingClose = id;
+      dialog = { kind: "close-tab", title: tabTitle(sess.doc.meta.title) };
+      return;
+    }
+    dropTab(id, true);
+  }
+
+  function titlesNeedingPrompt(): { id: string; title: string }[] {
+    const rows: { id: string; title: string }[] = [];
+    for (const id of tabOrder) {
+      const sess = sessionFor(id);
+      const track = saves.get(id);
+      if (!sess || !track) continue;
+      if (promptFor(track, preferences, sess.history.stateId)) rows.push({ id, title: tabTitle(sess.doc.meta.title) });
+    }
+    return rows;
+  }
+
+  async function flushAutosave() {
+    for (const id of [...tabOrder]) {
+      const track = saves.get(id);
+      if (!track?.path || preferences.saveMode !== "autosave" || track.paused || track.conflict) continue;
+      await saveTab(id, "close");
+    }
+  }
+
+  async function finishQuit() {
+    quitting = true;
+    await bridge.destroyWindow();
+  }
+
+  async function requestQuit() {
+    await flushAutosave();
+    const pending = titlesNeedingPrompt();
+    if (pending.length === 0) {
+      for (const id of [...tabOrder]) {
+        const track = saves.get(id);
+        if (track) void bridge.deleteRecovery(track.recoveryId);
+      }
+      await finishQuit();
+      return;
+    }
+    if (pending.length === 1) {
+      quitAfterClose = true;
+      pendingClose = pending[0].id;
+      dialog = { kind: "close-tab", title: pending[0].title };
+      return;
+    }
+    quitAfterClose = true;
+    dialog = { kind: "quit", titles: pending.map((row) => row.title) };
+  }
+
+  function reopenClosed() {
+    const last = closedStack.pop();
+    if (!last) {
+      scene?.flash("No closed tab to reopen");
+      return;
+    }
+    openTab(last.session, { ...last.save, saving: false }, last.chrome.mapKind, false);
+    const id = activeId;
+    const chrome = last.chrome;
+    restoreChrome(chrome);
+    showSession(chrome.mapKind, chrome.pose);
+    if (id) saves.set(id, { ...last.save, saving: false });
+  }
+
+  function cycleTab(delta: number) {
+    if (tabOrder.length < 2) return;
+    const index = tabOrder.indexOf(activeId);
+    const next = tabOrder[(index + delta + tabOrder.length) % tabOrder.length];
+    if (next) activate(next);
+  }
+
+  async function tickTabs() {
+    const now = Date.now();
+    for (const id of tabOrder) {
+      const sess = sessionFor(id);
+      const track = saves.get(id);
+      if (!sess || !track || track.saving) continue;
+      const dirty = sess.history.stateId !== track.savedStateId;
+      const clock = {
+        mode: preferences.saveMode,
+        path: track.path,
+        dirty,
+        paused: track.paused,
+        conflict: track.conflict,
+        saving: track.saving,
+        lastEditAt: track.lastEditAt,
+        burstStartedAt: track.burstStartedAt,
+        lastAutosaveAt: track.lastAutosaveAt,
+        lastRecoveryAt: track.lastRecoveryAt,
+        lastBackupAt: track.lastBackupAt,
+        savedAt: track.lastSavedAt,
+        delayMs: preferences.autosaveDelayMs,
+        maxIntervalMs: preferences.autosaveMaxIntervalMs,
+        recoveryIdleMs: preferences.recoveryIdleMs,
+        recoveryMaxMs: preferences.recoveryMaxMs,
+      };
+      if (shouldWriteRecovery(clock, now)) await writeRecovery(id);
+      if (shouldAutosave(clock, now, "tick")) await saveTab(id, "autosave");
+    }
+  }
+
+  function onBlur() {
+    for (const id of tabOrder) {
+      const track = saves.get(id);
+      if (track?.path && preferences.saveMode === "autosave") void saveTab(id, "close");
+    }
+  }
+
+  function onFileKey(event: KeyboardEvent) {
+    if (dialog) return;
+    const mod = event.metaKey || event.ctrlKey;
+    if (event.key === "Tab" && event.ctrlKey && !event.altKey && !event.metaKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      cycleTab(event.shiftKey ? -1 : 1);
+      return;
+    }
+    if (!mod || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key === "s") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.shiftKey) void saveAs(activeId);
+      else void saveActive();
+      return;
+    }
+    if (key === "o" && !event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      void openDialog();
+      return;
+    }
+    if (key === "t" && event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      reopenClosed();
+      return;
+    }
+    if (key === "t") {
+      event.preventDefault();
+      event.stopPropagation();
+      newMap();
+      return;
+    }
+    if (key === "w" && !event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      void requestClose(activeId);
+      return;
+    }
+    if (event.key === ",") {
+      event.preventDefault();
+      event.stopPropagation();
+      prefsOpen = !prefsOpen;
+      return;
+    }
+    if (key === "n" && !event.shiftKey && !screen && panel !== "edit" && !linkMode && !prefsOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      newMap();
+      return;
+    }
+    const digit = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
+    if (digit && !event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      const n = Number(digit[1]);
+      const id = n === 9 ? tabOrder[tabOrder.length - 1] : tabOrder[n - 1];
+      if (id) activate(id);
+    }
+  }
+
+  async function onCloseTabChoice(choice: "save" | "discard" | "cancel") {
+    dialog = null;
+    const id = pendingClose;
+    pendingClose = null;
+    if (!id || choice === "cancel") {
+      closeQueue = [];
+      quitAfterClose = false;
+      return;
+    }
+    if (choice === "save") {
+      const track = saves.get(id);
+      const ok = track?.path ? await saveTab(id, "manual") : await saveAs(id);
+      if (!ok) {
+        closeQueue = [];
+        quitAfterClose = false;
+        return;
+      }
+    }
+    dropTab(id, choice === "discard" || choice === "save");
+    const next = closeQueue.shift();
+    if (next) {
+      const sess = sessionFor(next);
+      pendingClose = next;
+      dialog = { kind: "close-tab", title: tabTitle(sess?.doc.meta.title) };
+      return;
+    }
+    if (quitAfterClose) {
+      quitAfterClose = false;
+      await finishQuit();
+    }
+  }
+
+  async function onQuitChoice(choice: "save-all" | "review" | "discard" | "cancel") {
+    dialog = null;
+    if (choice === "cancel") {
+      quitAfterClose = false;
+      return;
+    }
+    const pending = titlesNeedingPrompt();
+    if (choice === "discard") {
+      for (const row of pending) dropTab(row.id, false);
+      quitAfterClose = false;
+      await finishQuit();
+      return;
+    }
+    if (choice === "review") {
+      closeQueue = pending.slice(1).map((row) => row.id);
+      if (pending[0]) {
+        pendingClose = pending[0].id;
+        dialog = { kind: "close-tab", title: pending[0].title };
+      }
+      return;
+    }
+    for (const row of pending) {
+      const track = saves.get(row.id);
+      if (!track) continue;
+      const ok = track.path ? await saveTab(row.id, "manual") : await saveAs(row.id);
+      if (!ok) {
+        quitAfterClose = false;
+        return;
+      }
+      dropTab(row.id, true);
+    }
+    quitAfterClose = false;
+    await finishQuit();
+  }
+
+  async function onRecoveryChoice(choice: "restore" | "discard", id: string) {
+    const current = dialog?.kind === "recovery" ? dialog.items : [];
+    const item = current.find((entry) => entry.id === id);
+    if (choice === "discard") await bridge.deleteRecovery(id);
+    if (choice === "restore" && item) {
+      try {
+        const next = MapSession.load(JSON.parse(item.mapText) as unknown);
+        const track = freshTrack(item.id, { edited: true });
+        track.path = item.path;
+        track.savedStateId = -1;
+        if (item.path) {
+          try {
+            track.stamp = (await bridge.read(item.path)).stamp;
+          } catch {
+            track.stamp = null;
+          }
+        }
+        openTab(next, track, "sample", false);
+      } catch (error) {
+        dialog = { kind: "notice", message: error instanceof Error ? error.message : "That recovery could not be opened" };
+        return;
+      }
+    }
+    const rest = current.filter((entry) => entry.id !== id);
+    dialog = rest.length ? { kind: "recovery", items: rest } : null;
+  }
+
+  async function onConflictChoice(choice: "reload" | "save-as" | "cancel") {
+    const path = dialog?.kind === "conflict" ? dialog.path : saves.get(activeId)?.path;
+    dialog = null;
+    const track = saves.get(activeId);
+    if (!track || !path) return;
+    if (choice === "cancel") return;
+    if (choice === "save-as") {
+      track.conflict = false;
+      track.paused = false;
+      await saveAs(activeId);
+      return;
+    }
+    try {
+      const read = await bridge.read(path);
+      const next = MapSession.load(JSON.parse(read.text) as unknown);
+      session = next;
+      track.stamp = read.stamp;
+      track.savedStateId = next.history.stateId;
+      track.conflict = false;
+      track.paused = false;
+      track.lastEditAt = null;
+      track.burstStartedAt = null;
+      showSession(mapKind, null);
+    } catch (error) {
+      dialog = { kind: "notice", message: error instanceof Error ? error.message : "Reload failed" };
+    }
+  }
+
+  async function onFailureChoice(choice: "retry" | "save-as" | "cancel") {
+    dialog = null;
+    const track = saves.get(activeId);
+    if (!track) return;
+    if (choice === "cancel") return;
+    track.paused = false;
+    if (choice === "retry") await saveTab(activeId, "manual");
+    else await saveAs(activeId);
+  }
+
+  function onPathChoice(path: string | null) {
+    dialog = null;
+    const wait = pathWait;
+    pathWait = null;
+    wait?.(path);
   }
 
   onMount(() => {
@@ -983,7 +1708,7 @@
       redo,
       togglePin,
       commitMove,
-      blocksSceneKeys: () => screen !== null,
+      blocksSceneKeys: () => screen !== null || prefsOpen || dialog !== null,
       sceneKey,
       linkActive: () => linkMode !== null,
       hoverLinkTarget: (id) => {
@@ -991,10 +1716,16 @@
         linkMode = { ...linkMode, targetId: id };
         refreshCursor();
       },
-      chooseLinkTarget: (id) => {
+      confirmLinkClick: (id) => {
         if (!linkMode) return;
-        linkMode = { ...linkMode, targetId: id };
+        const decision = linkPointerConfirm(linkMode.targetId, id);
+        if (!decision.create || !decision.targetId) {
+          scene?.flash("Choose a target node");
+          return;
+        }
+        if (linkMode.targetId !== decision.targetId) linkMode = { ...linkMode, targetId: decision.targetId };
         refreshCursor();
+        confirmLink();
       },
       cancelLink: () => endLink(),
     });
@@ -1029,19 +1760,87 @@
         linkMode,
         screen: screen?.name ?? null,
         activeTypeId,
+        tabs: tabOrder.map((id) => {
+          const sess = sessionFor(id);
+          const track = saves.get(id);
+          const status = track && sess ? statusFor(track, preferences, sess.history.stateId) : { mark: "", text: "" };
+          return { id, title: tabTitle(sess?.doc.meta.title), mark: status.mark, path: track?.path ?? null, text: status.text };
+        }),
+        saveStatus: fileStatus,
+        preferences,
+        path: saves.get(activeId)?.path ?? null,
+        dirty: session.history.stateId !== (saves.get(activeId)?.savedStateId ?? 0),
+        dialog: dialog?.kind ?? null,
+        prefsOpen,
       }),
+      flushRecovery: () => writeRecovery(activeId),
+      skipClosePrompt: () => {
+        quitting = true;
+      },
+      requestQuit: () => requestQuit(),
+      closeTab: () => requestClose(activeId),
+      save: () => saveActive(),
+      openPreferences: () => {
+        prefsOpen = true;
+      },
+      setPreferences: (partial: Partial<Preferences>) => updatePreferences({ ...preferences, ...partial }),
       selectNode: (id: string | null) => scene?.selectNode(id),
       selectLink: (id: string) => scene?.selectLink(id),
       loadDocument: (next: MapDocument) => {
         session = MapSession.load(next);
+        const track = saves.get(activeId);
+        if (track) {
+          track.path = null;
+          track.stamp = null;
+          track.savedStateId = session.history.stateId;
+          track.lastEditAt = null;
+          track.burstStartedAt = null;
+          track.conflict = false;
+          track.paused = false;
+        }
         doc = session.doc;
         revision += 1;
         mapKind = "sample";
         scene?.load(session.doc);
+        touch();
       },
     };
     (window as unknown as { __mindmap?: typeof api }).__mindmap = api;
+    paintPreferences(preferences);
+    editFirstNode();
+    const onUnload = (event: BeforeUnloadEvent) => {
+      if (quitting) return;
+      if (titlesNeedingPrompt().length > 0) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", onUnload);
+    const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
+    const onTheme = () => {
+      if (preferences.theme === "system") paintPreferences(preferences);
+    };
+    themeMedia.addEventListener("change", onTheme);
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let stopOpen = () => {};
+    let stopClose = () => {};
+    void (async () => {
+      bridge = await createFileBridge();
+      paintPreferences(await bridge.loadPreferences());
+      stopOpen = bridge.onOpenPaths((paths) => {
+        for (const path of paths) void openFromPath(path);
+      });
+      stopClose = bridge.onCloseRequested(() => void requestQuit());
+      const startup = await bridge.takeStartupPaths();
+      for (const path of startup) await openFromPath(path);
+      const recovery = await bridge.listRecovery();
+      if (recovery.length > 0) dialog = { kind: "recovery", items: recovery };
+      void refreshTitle();
+      timer = setInterval(() => void tickTabs(), 400);
+    })();
     return () => {
+      if (timer) clearInterval(timer);
+      themeMedia.removeEventListener("change", onTheme);
+      window.removeEventListener("beforeunload", onUnload);
+      stopOpen();
+      stopClose();
       scene?.dispose();
       scene = null;
     };
@@ -1082,6 +1881,8 @@
   });
 </script>
 
+<svelte:window onkeydowncapture={onFileKey} onblur={onBlur} />
+
 <div class="app" class:reading={panel !== "closed"}>
   <div class="viewport" bind:this={host}></div>
 
@@ -1093,8 +1894,10 @@
         <h1>{doc.meta.title || "Untitled map"}</h1>
       </div>
     </div>
+    <TabStrip tabs={strip} {activeId} onActivate={activate} onClose={(id) => void requestClose(id)} />
     <p class="status" aria-live="polite">
-      {hud.message || hud.status}
+      <span class="file">{fileStatus}</span>
+      <span>· {hud.message || hud.status}</span>
       {#if filterLabel}
         <span>· {filterLabel}</span>
       {/if}
@@ -1132,9 +1935,18 @@
     </div>
 
     <div class="group">
+      <p class="kicker">File</p>
+      <div class="row">
+        <button type="button" onclick={() => void saveActive()}>Save</button>
+        <button type="button" onclick={() => void openDialog()}>Open</button>
+        <button type="button" class:on={prefsOpen} onclick={() => (prefsOpen = !prefsOpen)}>Preferences</button>
+      </div>
+    </div>
+
+    <div class="group">
       <p class="kicker">Map</p>
       <div class="row">
-        <button type="button" class:on={mapKind === "new"} onclick={newMap}>New map</button>
+        <button type="button" class:on={mapKind === "new"} onclick={newMap}>New tab</button>
         <button type="button" class:on={mapKind === "stress"} onclick={() => chooseMap("stress")}>2,304 nodes</button>
         <button type="button" class:on={mapKind === "sample"} onclick={() => chooseMap("sample")}>Flooding sample</button>
       </div>
@@ -1256,8 +2068,6 @@
       nodes={nodeChoices}
       {followRows}
       {filters}
-      {dimLonely}
-      {skipPicker}
       {defaultTypeId}
       highlightId={lastTypeId}
       onClose={() => (screen = null)}
@@ -1265,11 +2075,6 @@
       onFilter={(id, state) => applyFilters(withFilter(session.doc.view?.linkTypeFilters, id, state))}
       onSolo={(id) => applyFilters(soloFilters(rows.map((row) => row.id), id))}
       onShowAll={() => applyFilters({})}
-      onDimLonely={(on) => {
-        dimLonely = on;
-        scene?.setDimLonely(on);
-      }}
-      {onSkipPicker}
       onOpenManager={() => (screen = { name: "manager" })}
       {onSaveType}
       {onAddType}
@@ -1292,6 +2097,22 @@
     />
   {/if}
 
+  {#if prefsOpen}
+    <PreferencesPanel {preferences} onChange={updatePreferences} onClose={() => (prefsOpen = false)} />
+  {/if}
+  {#if dialog}
+    <FileDialogs
+      {dialog}
+      onCloseTab={(choice) => void onCloseTabChoice(choice)}
+      onQuit={(choice) => void onQuitChoice(choice)}
+      onRecovery={(choice, id) => void onRecoveryChoice(choice, id)}
+      onConflict={(choice) => void onConflictChoice(choice)}
+      onFailure={(choice) => void onFailureChoice(choice)}
+      onPath={onPathChoice}
+      onDismiss={() => (dialog = null)}
+    />
+  {/if}
+
   <footer class="keys">
     <span><kbd>Arrows</kbd> select</span>
     <span><kbd>Enter</kbd> read</span>
@@ -1308,6 +2129,11 @@
     <span><kbd>Shift</kbd>+<kbd>L</kbd> legend</span>
     <span><kbd>G</kbd> grab</span>
     <span><kbd>Del</kbd> delete</span>
+    <span><kbd>Mod</kbd>+<kbd>S</kbd> save</span>
+    <span><kbd>Mod</kbd>+<kbd>O</kbd> open</span>
+    <span><kbd>Mod</kbd>+<kbd>T</kbd> tab</span>
+    <span><kbd>Mod</kbd>+<kbd>W</kbd> close</span>
+    <span><kbd>Mod</kbd>+<kbd>,</kbd> preferences</span>
     <span><kbd>Mod</kbd>+<kbd>Z</kbd> undo</span>
     <span><kbd>[</kbd> <kbd>]</kbd> cycle</span>
     <span><kbd>V</kbd> view</span>
@@ -1434,6 +2260,10 @@
     max-width: 46vw;
     color: #c5d2e0;
     font-size: 14px;
+  }
+
+  .file {
+    color: #ffe7a3;
   }
 
   .tools {
@@ -1586,6 +2416,37 @@
     height: 1px;
     overflow: hidden;
     clip: rect(0 0 0 0);
+  }
+
+  :global(html[data-theme="light"]),
+  :global(html[data-theme="light"] body) {
+    background: #f4f1ea;
+    color: #1c2430;
+  }
+
+  :global(html[data-theme="light"]) .tools {
+    background: rgba(255, 252, 246, 0.92);
+    border-color: rgba(28, 36, 48, 0.12);
+    color: #1c2430;
+  }
+
+  :global(html[data-theme="light"]) .status,
+  :global(html[data-theme="light"]) .meta,
+  :global(html[data-theme="light"]) .fine,
+  :global(html[data-theme="light"]) .keys,
+  :global(html[data-theme="light"]) .kicker,
+  :global(html[data-theme="light"]) dt {
+    color: #3d4b5c;
+  }
+
+  :global(html[data-theme="light"]) button {
+    background: rgba(255, 255, 255, 0.7);
+    color: #1c2430;
+    border-color: rgba(28, 36, 48, 0.16);
+  }
+
+  :global(html[data-theme="light"]) .file {
+    color: #8a5a12;
   }
 
   @media (max-width: 720px) {

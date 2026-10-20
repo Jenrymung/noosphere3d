@@ -20,11 +20,20 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' blob: data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' blob: data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {
     "active": true,
+    "fileAssociations": [
+      {
+        "ext": ["mindmap3d"],
+        "name": "3D Mind Map Document",
+        "description": "A 3D mind map",
+        "mimeType": "application/vnd.mindmap3d+json",
+        "role": "Editor"
+      }
+    ],
     "macOS": {
       "signingIdentity": "-"
     },

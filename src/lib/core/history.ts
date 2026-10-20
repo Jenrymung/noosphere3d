@@ -13,11 +13,20 @@ export interface HistoryEntry {
   selectionAfter: SelectionSnapshot;
   groupKey?: string;
   groupAt: number;
+  /** Identity of the document after this entry. Undo returns to the previous id. */
+  stateId?: number;
 }
 
 export class History {
   private undoStack: HistoryEntry[] = [];
   private redoStack: HistoryEntry[] = [];
+  private stateSeq = 1;
+  private currentStateId = 0;
+
+  /** 0 is the document as loaded or created, before any command. */
+  get stateId(): number {
+    return this.currentStateId;
+  }
 
   get canUndo(): boolean {
     return this.undoStack.length > 0;
@@ -48,7 +57,11 @@ export class History {
       last.inverse = [...entry.inverse, ...last.inverse];
       last.selectionAfter = entry.selectionAfter;
       last.groupAt = entry.groupAt;
+      last.stateId = this.stateSeq++;
+      this.currentStateId = last.stateId;
     } else {
+      entry.stateId = this.stateSeq++;
+      this.currentStateId = entry.stateId;
       this.undoStack.push(entry);
       if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     }
@@ -66,6 +79,7 @@ export class History {
     if (!entry) return null;
     const next = applyPatches(doc, entry.inverse) as MapDocument;
     this.redoStack.push(entry);
+    this.currentStateId = this.undoStack[this.undoStack.length - 1]?.stateId ?? 0;
     return { doc: next, selection: entry.selectionBefore };
   }
 
@@ -74,6 +88,7 @@ export class History {
     if (!entry) return null;
     const next = applyPatches(doc, entry.forward) as MapDocument;
     this.undoStack.push(entry);
+    this.currentStateId = entry.stateId ?? this.currentStateId;
     return { doc: next, selection: entry.selectionAfter };
   }
 }

@@ -3,6 +3,7 @@
   import type { TypeDraft } from "$lib/input/linkForm";
   import type { TypeRow } from "$lib/input/linkOps";
   import { fuzzyRank } from "$lib/input/linkOps";
+  import { lineSample } from "$lib/ui/lineSample";
 
   type Screen =
     | { name: "picker"; purpose: string }
@@ -17,8 +18,6 @@
     nodes,
     followRows,
     filters,
-    dimLonely,
-    skipPicker,
     defaultTypeId,
     highlightId = "",
     onClose,
@@ -26,8 +25,6 @@
     onFilter,
     onSolo,
     onShowAll,
-    onDimLonely,
-    onSkipPicker,
     onOpenManager,
     onSaveType,
     onAddType,
@@ -44,8 +41,6 @@
     nodes: { id: string; title: string }[];
     followRows: { key: string; label: string }[];
     filters: Record<string, string>;
-    dimLonely: boolean;
-    skipPicker: boolean;
     defaultTypeId: string;
     highlightId?: string;
     onClose: () => void;
@@ -53,8 +48,6 @@
     onFilter: (id: string, state: "shown" | "dimmed" | "hidden") => void;
     onSolo: (id: string) => void;
     onShowAll: () => void;
-    onDimLonely: (on: boolean) => void;
-    onSkipPicker: (on: boolean) => void;
     onOpenManager: (id: string) => void;
     onSaveType: (id: string, draft: TypeDraft) => void;
     onAddType: (draft: TypeDraft) => void;
@@ -397,11 +390,16 @@
             <button type="button" onclick={() => onFollow(itemIndex)}>{itemIndex < 9 ? `${itemIndex + 1} ` : ""}{(item as { label: string }).label}</button>
           {:else}
             {@const row = item as TypeRow}
+            {@const sample = lineSample(row)}
             <button
               type="button"
               onclick={() => (screen.name === "legend" ? onOpenManager(row.id) : screen.name === "manager" ? ((editingId = row.id), (formTitle = row.name), (form = draftFrom(row))) : onPick(row.id))}
             >
-              <span class="swatch" style:background={row.color}></span>
+              <span class="sample" style:--ink={sample.color} data-pattern={sample.pattern} aria-hidden="true">
+                {#if sample.arrow === "both"}<i class="head back"></i>{/if}
+                <i class="stroke"></i>
+                {#if sample.arrow !== "none"}<i class="head"></i>{/if}
+              </span>
               {#if row.digit}<kbd>{row.digit}</kbd>{/if}
               <span class="name" class:unused={row.count === 0}>{row.icon ? `${row.icon} ` : ""}{row.name}</span>
               <span class="count">{row.count}</span>
@@ -418,17 +416,15 @@
     {#if screen.name === "legend"}
       <div class="row">
         <button type="button" onclick={onShowAll}>Show all</button>
-        <button type="button" class:on={dimLonely} onclick={() => onDimLonely(!dimLonely)}>Dim unlinked nodes</button>
       </div>
-      <p class="hint">Space cycles shown, dimmed, hidden. S solos. A shows all. Esc returns to the map.</p>
+      <p class="hint">Space cycles shown, dimmed, hidden. S solos. A shows all. Dim nodes with no visible links lives in Preferences. Esc returns to the map.</p>
     {:else if screen.name === "manager"}
-      <label class="check"><input type="checkbox" checked={skipPicker} onchange={(event) => onSkipPicker((event.currentTarget as HTMLInputElement).checked)} /> Skip the picker and use the last type</label>
       <div class="row">
         <button type="button" onclick={() => { const row = rows[index]; if (row) onDefault(row.id); }}>Make default</button>
         <button type="button" onclick={() => { const row = rows[index]; if (row) openDelete(row.id); }}>Delete</button>
         <button type="button" onclick={() => { formTitle = "New type"; editingId = null; form = blankDraft(""); }}>New type</button>
       </div>
-      <p class="hint">Alt+arrows reorder the number keys. The default is {rows.find((row) => row.id === defaultTypeId)?.name ?? "the first type"}.</p>
+      <p class="hint">Alt+arrows reorder the number keys. The default is {rows.find((row) => row.id === defaultTypeId)?.name ?? "the first type"}. Skip the picker lives in Preferences.</p>
     {:else if screen.name === "picker"}
       <p class="hint">1–9 choose. Mod+N creates a type from the search. Esc goes back.</p>
     {:else}
@@ -438,6 +434,12 @@
 </section>
 
 <style>
+  :global(html[data-theme="light"]) .chrome {
+    background: rgba(247, 244, 238, 0.97);
+    color: #1c2430;
+    border-color: rgba(28, 36, 48, 0.14);
+  }
+
   .chrome {
     pointer-events: auto;
     position: absolute;
@@ -520,11 +522,41 @@
     cursor: pointer;
   }
 
-  .swatch {
-    width: 10px;
-    height: 14px;
-    border-radius: 2px;
+  .sample {
     flex: none;
+  }
+
+  .sample {
+    width: 52px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    color: var(--ink);
+  }
+
+  .stroke {
+    flex: 1;
+    border-top: 2px solid var(--ink);
+  }
+
+  .sample[data-pattern="dashed"] .stroke {
+    border-top-style: dashed;
+  }
+
+  .sample[data-pattern="dotted"] .stroke {
+    border-top-style: dotted;
+  }
+
+  .head {
+    width: 0;
+    height: 0;
+    border: 4px solid transparent;
+    border-left: 6px solid var(--ink);
+  }
+
+  .head.back {
+    border-left-color: transparent;
+    border-right: 6px solid var(--ink);
   }
 
   .name {
@@ -564,15 +596,6 @@
     font-size: 14px;
     letter-spacing: 0;
     text-transform: none;
-  }
-
-  .check {
-    flex-direction: row;
-    align-items: center;
-    text-transform: none;
-    letter-spacing: 0;
-    font-size: 14px;
-    color: #d5e0ec;
   }
 
   .row {

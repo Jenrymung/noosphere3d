@@ -6,7 +6,7 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import { BatchedText, Text } from "troika-three-text";
+import { BatchedText, Text, configureTextBuilder } from "troika-three-text";
 import fontUrl from "@fontsource/source-sans-3/files/source-sans-3-latin-400-normal.woff?url";
 import { LinkIndex, neighbours, sortedWaypoints, visibleNeighbourIds } from "../core/graph";
 import { linkLabel, nodeHasBody, nodeTitle, wrapTitle } from "../core/title";
@@ -26,6 +26,14 @@ import {
 import { ViewOperator, type CameraPose } from "../input/viewOperator";
 import { MIN_ARROW_PX, arrowProjectChunk } from "./arrowScale";
 import { fanSlots, iconRadius, routeLink } from "./route";
+
+const unicodeFontsURL =
+  typeof window === "undefined" ? "/unicode-fonts" : new URL("/unicode-fonts", window.location.origin).href;
+
+configureTextBuilder({
+  defaultFontURL: typeof window === "undefined" ? fontUrl : new URL(fontUrl, window.location.origin).href,
+  unicodeFontsURL,
+});
 
 export type LabelMode = "sdf" | "css2d" | "off";
 export type LabelDensity = "all" | "nearby";
@@ -79,6 +87,8 @@ export interface SceneHooks {
   linkActive?: () => boolean;
   hoverLinkTarget?: (id: string | null) => void;
   chooseLinkTarget?: (id: string) => void;
+  /** Left click confirms the aimed target, the same way Enter does. */
+  confirmLinkClick?: (id: string | null) => void;
   cancelLink?: () => void;
 }
 
@@ -120,6 +130,10 @@ export interface MindMapScene {
   spatialFrom(fromId: string, direction: ArrowDirection): string | null;
   setDimLonely(on: boolean): void;
   setStatus(text: string): void;
+  setPose(pose: { position: Vec3; target: Vec3 }): void;
+  setLabelScale(scale: number): void;
+  setReduceMotion(mode: "system" | "on" | "off"): void;
+  setBackdrop(color: string): void;
   dispose(): void;
 }
 
@@ -145,7 +159,8 @@ export function createMindMapScene(
   onToggleMap: () => void,
   hooks: SceneHooks = {},
 ): MindMapScene {
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let labelUserScale = 1;
   const canvas = document.createElement("canvas");
   canvas.className = "scene-canvas";
   canvas.tabIndex = 0;
@@ -610,7 +625,7 @@ export function createMindMapScene(
       const text = new Text();
       text.text = wrapped;
       text.font = fontUrl;
-      text.fontSize = BASE_FONT;
+      text.fontSize = BASE_FONT * labelUserScale;
       text.anchorX = "center" as unknown as number;
       text.anchorY = "bottom" as unknown as number;
       text.color = 0xf4f7fb;
@@ -672,7 +687,7 @@ export function createMindMapScene(
       scaleAttr!.setX(index, node.scale * lift);
       node.card.classList.toggle("is-selected", selected);
       node.text.color = selected ? 0xfff6dc : aimed ? 0xe7f2ff : 0xf4f7fb;
-      node.text.fontSize = selected ? BASE_FONT * 1.12 : BASE_FONT;
+      node.text.fontSize = (selected ? BASE_FONT * 1.12 : BASE_FONT) * labelUserScale;
     });
     colorAttr.needsUpdate = true;
     scaleAttr.needsUpdate = true;
@@ -1013,7 +1028,7 @@ export function createMindMapScene(
   }
 
   function labelPixelSize(distance: number): number {
-    return THREE.MathUtils.clamp(520 / Math.max(distance, 3), 11, 26);
+    return THREE.MathUtils.clamp((520 / Math.max(distance, 3)) * labelUserScale, 11 * labelUserScale, 26 * labelUserScale);
   }
 
   function updateLabels() {
@@ -1085,8 +1100,8 @@ export function createMindMapScene(
   function ensureLinkLabels() {
     if (linkLabelSlots.length > 0) return;
     for (let i = 0; i < 36; i += 1) {
-      const title = makeLinkText(0.2);
-      const type = makeLinkText(0.14);
+      const title = makeLinkText(0.2 * labelUserScale);
+      const type = makeLinkText(0.14 * labelUserScale);
       scene.add(title);
       scene.add(type);
       linkLabelSlots.push({ title, type, linkId: null, titleStr: "", typeStr: "" });
@@ -1683,9 +1698,9 @@ export function createMindMapScene(
   }
   function onPointerUp(event: PointerEvent) {
     if (linkMode && event.button === 0) {
-      if (pointer && !pointer.moved) {
+      if (!pointer || !pointer.moved) {
         const id = nearestNodeId(event);
-        if (id) hooks.chooseLinkTarget?.(id);
+        hooks.confirmLinkClick?.(id);
       }
       pointer = null;
       return;
@@ -1835,6 +1850,34 @@ export function createMindMapScene(
     status = text;
     linkBanner = text;
     publish();
+  }
+
+  function setPose(pose: { position: Vec3; target: Vec3 }) {
+    applyPose(pose);
+    requestRender();
+  }
+
+  function setLabelScale(scale: number) {
+    labelUserScale = Math.min(1.8, Math.max(0.7, scale));
+    for (const node of nodes) node.text.fontSize = BASE_FONT * labelUserScale;
+    for (const slot of linkLabelSlots) {
+      slot.title.fontSize = 0.2 * labelUserScale;
+      slot.type.fontSize = 0.14 * labelUserScale;
+    }
+    applySelectionVisual();
+    requestRender();
+  }
+
+  function setReduceMotion(mode: "system" | "on" | "off") {
+    const system = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    reduceMotion = mode === "on" || (mode === "system" && system);
+    controls.enableDamping = !reduceMotion && !grab && !viewOperator && !linkMode;
+    requestRender();
+  }
+
+  function setBackdrop(color: string) {
+    renderer.setClearColor(color);
+    requestRender();
   }
 
   function setLinkMode(on: boolean) {
@@ -2163,6 +2206,10 @@ export function createMindMapScene(
     spatialFrom,
     setDimLonely,
     setStatus,
+    setPose,
+    setLabelScale,
+    setReduceMotion,
+    setBackdrop,
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);
