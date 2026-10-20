@@ -1,0 +1,191 @@
+{
+  "format": "mindmap3d",
+  "version": 1,
+  "id": "01JB2X6Q7Z9K3M4N5P6R7S8T9V",
+  "meta": {
+    "title": "Urban flooding",
+    "createdAt": "2026-10-20T13:35:00Z",
+    "modifiedAt": "2026-10-20T14:02:11Z",
+    "appVersion": "0.1.0"
+  },
+  "settings": {
+    "defaultLinkTypeId": "relates-to",
+    "resourcesFolder": "Urban flooding.resources"
+  },
+  "view": {
+    "camera": {
+      "position": {
+        "x": 0,
+        "y": 4,
+        "z": 18
+      },
+      "target": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "fov": 50
+    },
+    "linkTypeFilters": {
+      "contradicts": "dimmed"
+    }
+  },
+  "linkTypes": {
+    "relates-to": {
+      "order": "a0",
+      "name": "relates to",
+      "color": "#999999",
+      "pattern": "solid",
+      "width": "normal",
+      "direction": "undirected"
+    },
+    "causes": {
+      "order": "a1",
+      "name": "leads to / causes",
+      "color": "#E69F00",
+      "pattern": "solid",
+      "width": "normal",
+      "direction": "directed",
+      "icon": "→",
+      "description": "A causes or results in B."
+    },
+    "part-of": {
+      "order": "a2",
+      "name": "part of",
+      "color": "#0072B2",
+      "pattern": "solid",
+      "width": "thick",
+      "direction": "directed",
+      "icon": "◆"
+    },
+    "depends-on": {
+      "order": "a3",
+      "name": "depends on",
+      "color": "#CC79A7",
+      "pattern": "dashed",
+      "width": "normal",
+      "direction": "directed",
+      "icon": "⚙"
+    },
+    "contradicts": {
+      "order": "a4",
+      "name": "contradicts",
+      "color": "#D55E00",
+      "pattern": "dashed",
+      "width": "thick",
+      "direction": "undirected",
+      "icon": "✕"
+    },
+    "example-of": {
+      "order": "a5",
+      "name": "example of",
+      "color": "#56B4E9",
+      "pattern": "dotted",
+      "width": "normal",
+      "direction": "directed",
+      "icon": "●"
+    },
+    "supports": {
+      "order": "a6",
+      "name": "supports",
+      "color": "#009E73",
+      "pattern": "solid",
+      "width": "normal",
+      "direction": "directed",
+      "icon": "+"
+    },
+    "01JB2X9Z0000000000000000T1": {
+      "order": "a7",
+      "name": "mitigates",
+      "color": "#F0E442",
+      "pattern": "dotted",
+      "width": "thick",
+      "direction": "directed",
+      "icon": "≈"
+    }
+  },
+  "nodes": {
+    "n-drainage": {
+      "text": "## Drainage system\n- storm drains\n- culverts\n\n![Drain diagram](images/drain-diagram.png)",
+      "position": {
+        "x": 4,
+        "y": -3,
+        "z": -2
+      }
+    },
+    "n-flood": {
+      "title": "Flooding (city centre)",
+      "text": "# Flooding\nStreets under water within **hours**.",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      }
+    },
+    "n-rain": {
+      "text": "# Heavy rain",
+      "position": {
+        "x": -6,
+        "y": 2,
+        "z": 0
+      },
+      "style": {
+        "color": "#4f8cff",
+        "size": 1.2
+      },
+      "pinned": true
+    }
+  },
+  "links": {
+    "l1": {
+      "source": "n-rain",
+      "target": "n-flood",
+      "typeId": "causes",
+      "title": "Overwhelms drains",
+      "text": "Above ~30 mm/h the drains back up."
+    },
+    "l2": {
+      "source": "n-rain",
+      "target": "n-flood",
+      "typeId": "relates-to",
+      "text": "# See the 2024 rainfall report\nSummary of rainfall data."
+    },
+    "l3": {
+      "source": "n-flood",
+      "target": "n-drainage",
+      "typeId": "depends-on",
+      "text": "",
+      "waypoints": {
+        "w-01": {
+          "order": "a0",
+          "position": {
+            "x": 1.5,
+            "y": -3.5,
+            "z": 2
+          }
+        },
+        "w-02": {
+          "order": "a1",
+          "position": {
+            "x": 3.5,
+            "y": -4.5,
+            "z": 1
+          }
+        }
+      },
+      "style": {
+        "labelSegment": 1
+      }
+    },
+    "l4": {
+      "source": "n-drainage",
+      "target": "n-flood",
+      "typeId": "01JB2X9Z0000000000000000T1",
+      "text": "",
+      "style": {
+        "bow": 0.4
+      }
+    }
+  },
+  "extensions": {}
+}
