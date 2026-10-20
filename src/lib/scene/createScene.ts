@@ -1,14 +1,19 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { BatchedText, Text } from "troika-three-text";
 import fontUrl from "@fontsource/source-sans-3/files/source-sans-3-latin-400-normal.woff?url";
-import { LinkIndex, linksForPair, neighbours, sortedWaypoints, visibleNeighbourIds } from "../core/graph";
-import { nodeTitle } from "../core/title";
+import { LinkIndex, neighbours, sortedWaypoints, visibleNeighbourIds } from "../core/graph";
+import { linkLabel, nodeHasBody, nodeTitle, wrapTitle } from "../core/title";
 import type { Link, MapDocument, Vec3 } from "../core/types";
+import { cameraFollowAction, cameraMoveMs } from "../input/cameraFollow";
+import { cycleLink, visibleLinkIds } from "../input/cycle";
+import { NavHistory } from "../input/navHistory";
 import {
   chooseDepthTarget,
   chooseSpatialTarget,
@@ -16,6 +21,8 @@ import {
   type ArrowDirection,
   type SpatialCandidate,
 } from "../input/spatial";
+import { ViewOperator, type CameraPose } from "../input/viewOperator";
+import { fanSlots, iconRadius, routeLink } from "./route";
 
 export type LabelMode = "sdf" | "css2d" | "off";
 export type LabelDensity = "all" | "nearby";
@@ -30,12 +37,15 @@ export interface HudSnapshot {
   labelMode: LabelMode;
   density: LabelDensity;
   selectedId: string | null;
+  selectedLinkId: string | null;
+  selectionKind: "node" | "link";
   selectedTitle: string;
   neighbours: number;
   message: string;
   ready: boolean;
   status: string;
   prepMs: number | null;
+  operator: "" | "view";
 }
 
 export interface BenchRow {
@@ -58,6 +68,7 @@ export interface MindMapScene {
   runBench(): Promise<BenchRow[]>;
   benchCase(mode: LabelMode, density: LabelDensity, frame?: boolean): Promise<BenchRow>;
   getHud(): HudSnapshot;
+  getPose(): { position: Vec3; target: Vec3 };
   dispose(): void;
 }
 
@@ -70,6 +81,7 @@ interface NodeView {
   base: THREE.Color;
   scale: number;
   title: string;
+  wrapped: string;
   text: Text;
   css: CSS2DObject;
   card: HTMLDivElement;
@@ -122,6 +134,7 @@ export function createMindMapScene(
   const ring = makeRing();
   scene.add(ring);
   scene.add(new THREE.GridHelper(160, 32, 0x243044, 0x1a2736));
+  scene.fog = new THREE.Fog(0x101820, 48, 260);
 
   let nodes: NodeView[] = [];
   let spacing = 1;
@@ -155,9 +168,18 @@ export function createMindMapScene(
     null;
   let autoOrbit = 0;
   let pointer: { x: number; y: number; moved: boolean } | null = null;
+  let selectedLinkId: string | null = null;
+  let hoverId: string | null = null;
+  let navHistory = new NavHistory();
+  let viewOperator: ViewOperator | null = null;
+  let highlight: Line2 | null = null;
+  let linkViews: LinkView[] = [];
+  let linkLabelSlots: LinkLabelSlot[] = [];
+  const FOLLOW_DISTANCE = 22;
 
   const tmp = new THREE.Vector3();
   const forward = new THREE.Vector3();
+  const camUp = new THREE.Vector3();
 
   function resize() {
     const width = host.clientWidth || 1;
@@ -170,6 +192,9 @@ export function createMindMapScene(
       const material = (object as LineSegments2).material as LineMaterial | undefined;
       if (material?.resolution) material.resolution.set(width, height);
     }
+    const highlightMaterial = highlight?.material as LineMaterial | undefined;
+    if (highlightMaterial?.resolution) highlightMaterial.resolution.set(width, height);
+    updateIconUniforms();
   }
 
   function clearWorld() {
@@ -186,6 +211,13 @@ export function createMindMapScene(
       mesh.material?.dispose?.();
     }
     linkObjects.length = 0;
+    if (highlight) {
+      scene.remove(highlight);
+      highlight.geometry.dispose();
+      (highlight.material as THREE.Material).dispose();
+      highlight = null;
+    }
+    linkViews = [];
     if (batch) {
       scene.remove(batch);
       batch.dispose();
@@ -203,7 +235,10 @@ export function createMindMapScene(
   function load(next: MapDocument) {
     currentDoc = next;
     linkIndex = LinkIndex.from(next);
+    if (viewOperator) endView(false);
     clearWorld();
+    selectedLinkId = null;
+    hoverId = null;
     ready = false;
     prepMs = null;
     status = "Building icons and links";
@@ -215,13 +250,17 @@ export function createMindMapScene(
       : next.nodes["s2-3-3-2"]
         ? "s2-3-3-2"
         : (Object.keys(next.nodes)[0] ?? null);
+    navHistory = new NavHistory();
+    if (selectedId) navHistory.visit(selectedId);
     rememberNeighbours();
     applySelectionVisual();
+    updateHighlight();
     if (next.view?.camera) {
       camera.position.set(next.view.camera.position.x, next.view.camera.position.y, next.view.camera.position.z);
       controls.target.set(next.view.camera.target.x, next.view.camera.target.y, next.view.camera.target.z);
       if (next.view.camera.fov) camera.fov = next.view.camera.fov;
       camera.updateProjectionMatrix();
+      updateIconUniforms();
     } else if (selectedId && next.nodes[selectedId]) {
       const position = next.nodes[selectedId].position;
       controls.target.set(position.x, position.y, position.z);
@@ -236,6 +275,7 @@ export function createMindMapScene(
       ready = true;
       status = "Ready";
       publish();
+      requestRender();
     });
     publish();
   }
@@ -251,6 +291,7 @@ export function createMindMapScene(
     const offsets = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
     const scales = new Float32Array(count);
+    const pages = new Float32Array(count);
     ids.forEach((id, index) => {
       const node = map.nodes[id];
       const color = new THREE.Color(node.style?.color ?? "#d5dbe6");
@@ -262,6 +303,7 @@ export function createMindMapScene(
       colors[index * 3 + 1] = color.g;
       colors[index * 3 + 2] = color.b;
       scales[index] = node.style?.size ?? 0.8;
+      pages[index] = nodeHasBody(node) ? 0 : 1;
       nodeIndex.set(id, index);
     });
     iconGeo.setAttribute("iOffset", new THREE.InstancedBufferAttribute(offsets, 3));
@@ -269,20 +311,32 @@ export function createMindMapScene(
     scaleAttr = new THREE.InstancedBufferAttribute(scales, 1);
     iconGeo.setAttribute("iColor", colorAttr);
     iconGeo.setAttribute("iScale", scaleAttr);
+    iconGeo.setAttribute("iPage", new THREE.InstancedBufferAttribute(pages, 1));
     iconGeo.instanceCount = count;
     iconMat = new THREE.ShaderMaterial({
-      uniforms: { uMap: { value: iconTexture } },
+      uniforms: {
+        uMap: { value: iconTexture },
+        uTan: { value: Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) },
+        uHeight: { value: host.clientHeight || 1 },
+        uMinPx: { value: 6 },
+      },
       vertexShader: `
         attribute vec3 iOffset;
         attribute vec3 iColor;
         attribute float iScale;
+        attribute float iPage;
+        uniform float uTan;
+        uniform float uHeight;
+        uniform float uMinPx;
         varying vec2 vUv;
         varying vec3 vColor;
         void main() {
-          vUv = uv;
+          vUv = vec2(uv.x * 0.5 + iPage * 0.5, uv.y);
           vColor = iColor;
           vec4 view = modelViewMatrix * vec4(iOffset, 1.0);
-          view.xy += position.xy * iScale;
+          float dist = max(-view.z, 0.2);
+          float size = max(iScale, uMinPx * (2.0 * uTan * dist) / max(uHeight, 1.0));
+          view.xy += position.xy * size;
           gl_Position = projectionMatrix * view;
         }
       `,
@@ -307,34 +361,82 @@ export function createMindMapScene(
   }
 
   function buildLinks(map: MapDocument) {
-    const buckets = new Map<string, number[]>();
-    const arrows = new Map<string, THREE.Matrix4[]>();
+    linkViews = [];
+    const drawn: { id: string; link: Link }[] = [];
     for (const [id, link] of Object.entries(map.links)) {
-      const filter = map.view?.linkTypeFilters?.[link.typeId] ?? "shown";
-      if (filter === "hidden") continue;
-      const points = routePoints(map, linkIndex, id, link);
-      const bucket = buckets.get(link.typeId) ?? [];
+      if (!map.nodes[link.source] || !map.nodes[link.target]) continue;
+      if ((map.view?.linkTypeFilters?.[link.typeId] ?? "shown") === "hidden") continue;
+      drawn.push({ id, link });
+    }
+    const slots = fanSlots(
+      drawn.map(({ id, link }) => ({
+        id,
+        source: link.source,
+        target: link.target,
+        hasWaypoints: sortedWaypoints(link).length > 0,
+      })),
+    );
+    const buckets = new Map<string, { positions: number[]; distances: number[] }>();
+    const arrows = new Map<string, THREE.Matrix4[]>();
+    for (const { id, link } of drawn) {
+      const slot = slots.get(id);
+      const sourceNode = map.nodes[link.source];
+      const targetNode = map.nodes[link.target];
+      const routed = routeLink({
+        source: sourceNode.position,
+        target: targetNode.position,
+        sourceRadius: iconRadius(sourceNode.style?.size),
+        targetRadius: iconRadius(targetNode.style?.size),
+        waypoints: sortedWaypoints(link).map((entry) => entry.waypoint.position),
+        fanIndex: slot?.fanIndex ?? 0,
+        fanCount: slot?.auto ? slot.fanCount : 1,
+        bow: link.style?.bow ?? 0,
+        labelSegment: link.style?.labelSegment,
+      });
+      const points = routed.points.map(asVec);
+      const label = linkLabel(link, map.linkTypes[link.typeId]);
+      const type = map.linkTypes[link.typeId];
+      linkViews.push({
+        id,
+        source: link.source,
+        target: link.target,
+        points,
+        label: asVec(routed.label),
+        title: label.title,
+        typeLine: label.typeLine,
+        dimmed: map.view?.linkTypeFilters?.[link.typeId] === "dimmed",
+        color: type?.color ?? "#999999",
+        colorHex: new THREE.Color(type?.color ?? "#999999").getHex(),
+      });
+      const bucket = buckets.get(link.typeId) ?? { positions: [], distances: [] };
+      let travelled = 0;
       for (let i = 0; i < points.length - 1; i += 1) {
         const start = points[i];
         const end = points[i + 1];
-        if (start.distanceToSquared(end) < 1e-6) continue;
-        bucket.push(start.x, start.y, start.z, end.x, end.y, end.z);
+        const span = start.distanceTo(end);
+        if (span < 1e-6) continue;
+        bucket.positions.push(start.x, start.y, start.z, end.x, end.y, end.z);
+        bucket.distances.push(travelled, travelled + span);
+        travelled += span;
       }
       buckets.set(link.typeId, bucket);
-      const type = map.linkTypes[link.typeId];
       if (!type || type.direction === "undirected" || points.length < 2) continue;
       const matrices = arrows.get(link.typeId) ?? [];
-      pushArrow(matrices, points[points.length - 2], points[points.length - 1]);
-      if (type.direction === "bidirectional") pushArrow(matrices, points[1], points[0]);
+      const scale = type.width === "thick" ? 1.35 : type.width === "thin" ? 0.72 : 1;
+      pushArrow(matrices, points[points.length - 1], asVec(routed.endDirection), scale);
+      if (type.direction === "bidirectional") {
+        pushArrow(matrices, points[0], asVec(routed.startDirection).multiplyScalar(-1), scale);
+      }
       arrows.set(link.typeId, matrices);
     }
     const widthPx = host.clientWidth || 1;
     const heightPx = host.clientHeight || 1;
-    for (const [typeId, positions] of buckets) {
-      if (positions.length === 0) continue;
+    for (const [typeId, bucket] of buckets) {
+      if (bucket.positions.length === 0) continue;
       const type = map.linkTypes[typeId];
       const geometry = new LineSegmentsGeometry();
-      geometry.setPositions(positions);
+      geometry.setPositions(bucket.positions);
+      applyLineDistances(geometry, bucket.distances);
       const linewidth = type?.width === "thick" ? 4.5 : type?.width === "thin" ? 1.25 : 2.4;
       const dashed = type?.pattern !== "solid";
       const material = new LineMaterial({
@@ -349,16 +451,16 @@ export function createMindMapScene(
       });
       material.resolution.set(widthPx, heightPx);
       const lines = new LineSegments2(geometry, material);
-      lines.computeLineDistances();
       lines.renderOrder = 1;
+      lines.frustumCulled = false;
       scene.add(lines);
       linkObjects.push(lines);
     }
     for (const [typeId, matrices] of arrows) {
       if (matrices.length === 0) continue;
       const type = map.linkTypes[typeId];
-      const geometry = new THREE.ConeGeometry(0.09, 0.28, 7);
-      geometry.translate(0, -0.14, 0);
+      const geometry = new THREE.ConeGeometry(0.1, 0.32, 8);
+      geometry.translate(0, -0.16, 0);
       const material = new THREE.MeshBasicMaterial({
         color: type?.color ?? "#999999",
         transparent: true,
@@ -368,6 +470,7 @@ export function createMindMapScene(
       const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
       matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix));
       mesh.renderOrder = 1;
+      mesh.frustumCulled = false;
       scene.add(mesh);
       linkObjects.push(mesh);
     }
@@ -381,10 +484,11 @@ export function createMindMapScene(
     for (const id of ids) {
       const node = map.nodes[id];
       const title = nodeTitle(node) || "Untitled";
+      const wrapped = wrapTitle(title);
       const position = new THREE.Vector3(node.position.x, node.position.y, node.position.z);
       const scale = node.style?.size ?? 0.8;
       const text = new Text();
-      text.text = title;
+      text.text = wrapped;
       text.font = fontUrl;
       text.fontSize = BASE_FONT;
       text.anchorX = "center" as unknown as number;
@@ -399,7 +503,7 @@ export function createMindMapScene(
 
       const card = document.createElement("div");
       card.className = "label-card";
-      card.textContent = title;
+      card.textContent = wrapped;
       const anchor = document.createElement("div");
       anchor.className = "label-anchor";
       anchor.appendChild(card);
@@ -415,6 +519,7 @@ export function createMindMapScene(
         base: new THREE.Color(node.style?.color ?? "#d5dbe6").lerp(new THREE.Color("#f4f7fb"), 0.35),
         scale,
         title,
+        wrapped,
         text,
         css,
         card,
@@ -435,36 +540,93 @@ export function createMindMapScene(
   function applySelectionVisual() {
     if (!colorAttr || !scaleAttr) return;
     nodes.forEach((node, index) => {
-      const selected = node.id === selectedId;
+      const selected = node.id === selectedId && !selectedLinkId;
+      const hovered = node.id === hoverId && !selected;
       const color = node.base.clone();
       if (selected) color.lerp(new THREE.Color("#ffe7a3"), 0.55);
       colorAttr!.setXYZ(index, color.r, color.g, color.b);
-      scaleAttr!.setX(index, selected ? node.scale * 1.45 : node.scale);
+      const lift = selected ? 1.45 : hovered ? 1.12 : 1;
+      scaleAttr!.setX(index, node.scale * lift);
       node.card.classList.toggle("is-selected", selected);
+      node.text.color = selected ? 0xfff6dc : 0xf4f7fb;
+      node.text.fontSize = selected ? BASE_FONT * 1.12 : BASE_FONT;
     });
     colorAttr.needsUpdate = true;
     scaleAttr.needsUpdate = true;
     const selected = nodes.find((node) => node.id === selectedId);
-    if (selected) {
+    if (selected && !selectedLinkId) {
       ring.position.copy(selected.position);
       ring.scale.setScalar(selected.scale * 1.7);
       ring.visible = true;
     } else {
       ring.visible = false;
     }
+    requestRender();
   }
 
-  function select(id: string | null, fromArrow: ArrowDirection | null) {
+  function select(id: string | null, fromArrow: ArrowDirection | null, recordHistory = true) {
     if (fromArrow && selectedId && id && id !== selectedId) lastSpatial = { fromId: selectedId, direction: fromArrow };
     else if (!fromArrow) lastSpatial = null;
+    selectedLinkId = null;
     selectedId = id;
+    if (id && recordHistory) navHistory.visit(id);
     rememberNeighbours();
     applySelectionVisual();
+    updateHighlight();
     if (id) {
       const node = nodes.find((item) => item.id === id);
       if (node) nudgeIntoView(node.position);
     }
     publish();
+  }
+
+  function selectLink(id: string) {
+    const link = currentDoc.links[id];
+    if (!link) return;
+    selectedLinkId = id;
+    if (selectedId !== link.source && selectedId !== link.target) {
+      selectedId = link.source;
+      navHistory.visit(link.source);
+      rememberNeighbours();
+    }
+    lastSpatial = null;
+    applySelectionVisual();
+    updateHighlight();
+    const view = linkViews.find((item) => item.id === id);
+    if (view) nudgeIntoView(view.label);
+    publish();
+  }
+
+  function updateHighlight() {
+    if (highlight) {
+      scene.remove(highlight);
+      highlight.geometry.dispose();
+      (highlight.material as THREE.Material).dispose();
+      highlight = null;
+    }
+    const view = selectedLinkId ? linkViews.find((item) => item.id === selectedLinkId) : undefined;
+    if (!view || view.points.length < 2) {
+      requestRender();
+      return;
+    }
+    const geometry = new LineGeometry();
+    const flat: number[] = [];
+    for (const point of view.points) flat.push(point.x, point.y, point.z);
+    geometry.setPositions(flat);
+    const material = new LineMaterial({
+      color: 0xffe7a3,
+      linewidth: 6.5,
+      transparent: true,
+      opacity: 0.95,
+      worldUnits: false,
+    });
+    material.resolution.set(host.clientWidth || 1, host.clientHeight || 1);
+    highlight = new Line2(geometry, material);
+    highlight.computeLineDistances();
+    highlight.renderOrder = 2;
+    highlight.frustumCulled = false;
+    scene.add(highlight);
+    requestRender();
   }
 
   function screenOf(position: THREE.Vector3): { x: number; y: number; depth: number; behind: boolean } | null {
@@ -578,6 +740,8 @@ export function createMindMapScene(
     if (direction === "down") spherical.phi = Math.min(Math.PI - 0.12, spherical.phi + step);
     offset.setFromSpherical(spherical);
     camera.position.copy(controls.target).add(offset);
+    zeroControlDeltas();
+    requestRender();
   }
 
   function zoom(factor: number) {
@@ -585,15 +749,46 @@ export function createMindMapScene(
     const next = THREE.MathUtils.clamp(offset.length() * factor, controls.minDistance, controls.maxDistance);
     offset.setLength(next);
     camera.position.copy(controls.target).add(offset);
+    zeroControlDeltas();
+    requestRender();
   }
 
   function focus() {
+    const point = focusPoint();
+    if (!point) return;
+    focusOn(point);
+  }
+
+  function focusPoint(): THREE.Vector3 | null {
+    if (selectedLinkId) {
+      const link = linkViews.find((item) => item.id === selectedLinkId);
+      if (link) return link.label.clone();
+    }
     const selected = nodes.find((node) => node.id === selectedId);
-    if (!selected) return;
+    return selected ? selected.position.clone() : null;
+  }
+
+  function focusOn(point: THREE.Vector3) {
     const offset = camera.position.clone().sub(controls.target);
     if (offset.lengthSq() < 1e-6) offset.set(0.4, 0.35, 1);
-    offset.setLength(7.5);
-    animateCamera(selected.position.clone().add(offset), selected.position.clone());
+    offset.setLength(Math.min(Math.max(offset.length(), 4.5), 9));
+    animateCamera(point.clone().add(offset), point.clone());
+  }
+
+  function panStep(direction: ArrowDirection) {
+    const distance = Math.max(camera.position.distanceTo(controls.target), 1);
+    const step = distance * 0.08;
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+    const delta = new THREE.Vector3();
+    if (direction === "left") delta.addScaledVector(right, -step);
+    if (direction === "right") delta.addScaledVector(right, step);
+    if (direction === "up") delta.addScaledVector(up, step);
+    if (direction === "down") delta.addScaledVector(up, -step);
+    camera.position.add(delta);
+    controls.target.add(delta);
+    zeroControlDeltas();
+    requestRender();
   }
 
   function frameAll(immediate = false) {
@@ -618,10 +813,12 @@ export function createMindMapScene(
     const dir = new THREE.Vector3(0.62, 0.48, 0.62).normalize();
     const dist = Math.max(8, sphere.radius / Math.sin(THREE.MathUtils.degToRad(camera.fov) / 2) * 1.15);
     const position = sphere.center.clone().addScaledVector(dir, dist);
-    if (immediate || reduceMotion) {
+    if (immediate || cameraMoveMs(reduceMotion) === 0) {
       controls.target.copy(sphere.center);
       camera.position.copy(position);
       focusAnim = null;
+      zeroControlDeltas();
+      requestRender();
     } else {
       animateCamera(position, sphere.center.clone());
     }
@@ -636,13 +833,17 @@ export function createMindMapScene(
     controls.target.copy(target);
     camera.position.copy(target).add(dir);
     focusAnim = null;
+    zeroControlDeltas();
+    requestRender();
   }
 
   function animateCamera(position: THREE.Vector3, target: THREE.Vector3) {
-    if (reduceMotion) {
+    if (cameraMoveMs(reduceMotion) === 0) {
       camera.position.copy(position);
       controls.target.copy(target);
       focusAnim = null;
+      zeroControlDeltas();
+      requestRender();
       return;
     }
     focusAnim = {
@@ -652,14 +853,25 @@ export function createMindMapScene(
       toT: target,
       t: 0,
     };
+    requestRender();
   }
 
   function nudgeIntoView(position: THREE.Vector3) {
+    camera.updateMatrixWorld();
     const ndc = position.clone().project(camera);
-    if (ndc.z < -1 || ndc.z > 1) {
-      focus();
+    const distance = camera.position.distanceTo(position);
+    const action = cameraFollowAction({
+      ndcX: ndc.x,
+      ndcY: ndc.y,
+      ndcZ: ndc.z,
+      distance,
+      limit: FOLLOW_DISTANCE,
+    });
+    if (action === "focus") {
+      focusOn(position);
       return;
     }
+    if (action === "hold") return;
     const margin = 0.74;
     let sx = 0;
     let sy = 0;
@@ -668,7 +880,7 @@ export function createMindMapScene(
     if (ndc.y > margin) sy = ndc.y - margin;
     else if (ndc.y < -margin) sy = ndc.y + margin;
     if (sx === 0 && sy === 0) return;
-    const dist = Math.max(camera.position.distanceTo(position), 1);
+    const dist = Math.max(distance, 1);
     const worldH = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * dist;
     const worldW = worldH * camera.aspect;
     const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
@@ -743,29 +955,161 @@ export function createMindMapScene(
         node.text.updateMatrix();
       }
     }
+    updateLinkLabels(height);
     void width;
   }
 
-  function pick(event: PointerEvent) {
+  function ensureLinkLabels() {
+    if (linkLabelSlots.length > 0) return;
+    for (let i = 0; i < 36; i += 1) {
+      const title = makeLinkText(0.2);
+      const type = makeLinkText(0.14);
+      scene.add(title);
+      scene.add(type);
+      linkLabelSlots.push({ title, type, linkId: null, titleStr: "", typeStr: "" });
+    }
+  }
+
+  function updateLinkLabels(height: number) {
+    ensureLinkLabels();
+    const show = labelMode !== "off";
+    camUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    const ranked = linkViews
+      .map((link) => ({ link, distance: camera.position.distanceTo(link.label) }))
+      .sort((a, b) => {
+        if (a.link.id === selectedLinkId) return -1;
+        if (b.link.id === selectedLinkId) return 1;
+        return a.distance - b.distance;
+      });
+    const chosen: { link: LinkView; distance: number }[] = [];
+    for (const item of ranked) {
+      if (!show) break;
+      const selected = item.link.id === selectedLinkId;
+      if (!selected && (item.distance > 48 || chosen.length >= linkLabelSlots.length)) continue;
+      chosen.push(item);
+      if (chosen.length >= linkLabelSlots.length) break;
+    }
+    const worldPerPixelAt = (distance: number) =>
+      (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * distance) / height;
+    linkLabelSlots.forEach((slot, index) => {
+      const item = chosen[index];
+      if (!item) {
+        slot.title.visible = false;
+        slot.type.visible = false;
+        slot.linkId = null;
+        return;
+      }
+      const selected = item.link.id === selectedLinkId;
+      const detail = selected || item.distance < 26 ? "both" : item.distance < 48 ? "one" : "none";
+      const showTitle = detail !== "none" && item.link.title != null && (detail === "both" || detail === "one");
+      const showType = detail === "both" || (detail === "one" && item.link.title == null) || (selected && item.link.title == null);
+      const pixels = labelPixelSize(item.distance);
+      const scale = (pixels * worldPerPixelAt(Math.max(item.distance, 0.5))) / BASE_FONT;
+      const lift = BASE_FONT * scale * 0.62;
+      slot.linkId = item.link.id;
+      slot.title.visible = showTitle;
+      slot.type.visible = showType;
+      if (showTitle && item.link.title) {
+        const text = wrapTitle(item.link.title, 1, 32);
+        if (slot.titleStr !== text) {
+          slot.title.text = text;
+          slot.titleStr = text;
+        }
+        slot.title.color = selected ? 0xfff6dc : 0xf7f1e4;
+        slot.title.fillOpacity = item.link.dimmed ? 0.45 : 1;
+        slot.title.position.copy(item.link.label);
+        if (showType) slot.title.position.addScaledVector(camUp, lift);
+        slot.title.quaternion.copy(camera.quaternion);
+        slot.title.scale.setScalar(scale);
+        slot.title.updateMatrix();
+      }
+      if (showType) {
+        if (slot.typeStr !== item.link.typeLine) {
+          slot.type.text = item.link.typeLine;
+          slot.typeStr = item.link.typeLine;
+        }
+        slot.type.color = item.link.colorHex;
+        slot.type.fillOpacity = item.link.dimmed ? 0.45 : 1;
+        slot.type.position.copy(item.link.label);
+        if (showTitle) slot.type.position.addScaledVector(camUp, -lift * 0.85);
+        slot.type.quaternion.copy(camera.quaternion);
+        slot.type.scale.setScalar(scale);
+        slot.type.updateMatrix();
+      }
+    });
+  }
+
+  function pick(event: PointerEvent, includeLinks = true): PickHit | null {
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    let best: { id: string; dist: number } | null = null;
+    camera.updateMatrixWorld();
+    let best: PickHit | null = null;
+    const consider = (hit: PickHit) => {
+      if (!best || hit.dist < best.dist) best = hit;
+    };
+    camUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
     for (const node of nodes) {
-      const ndc = node.position.clone().project(camera);
-      if (ndc.z < -1 || ndc.z > 1) continue;
-      const sx = (ndc.x * 0.5 + 0.5) * rect.width;
-      const sy = (-ndc.y * 0.5 + 0.5) * rect.height;
-      const dist = Math.hypot(sx - x, sy - y);
-      if (dist < 22 && (!best || dist < best.dist)) best = { id: node.id, dist };
+      const icon = projectToScreen(node.position, rect);
+      if (!icon) continue;
+      const titlePoint = projectToScreen(tmp.copy(node.position).addScaledVector(camUp, node.scale * 0.72), rect);
+      const iconDist = Math.hypot(icon.x - x, icon.y - y);
+      if (titlePoint) {
+        const titleDist = Math.hypot(titlePoint.x - x, titlePoint.y - y);
+        if (titleDist < 36 && titleDist <= iconDist) consider({ kind: "node-title", id: node.id, dist: titleDist });
+      }
+      if (iconDist < 22 * Math.max(node.scale, 0.8)) consider({ kind: "node-icon", id: node.id, dist: iconDist });
     }
-    if (best) select(best.id, null);
+    for (const slot of linkLabelSlots) {
+      if (!slot.linkId || (!slot.title.visible && !slot.type.visible)) continue;
+      const anchor = slot.title.visible ? slot.title.position : slot.type.position;
+      const screen = projectToScreen(anchor, rect);
+      if (!screen) continue;
+      const dist = Math.hypot(screen.x - x, screen.y - y);
+      if (dist < 32) consider({ kind: "link-label", id: slot.linkId, dist });
+    }
+    if (!includeLinks) return best;
+    for (const link of linkViews) {
+      let previous: { x: number; y: number } | null = null;
+      for (const point of link.points) {
+        const screen = projectToScreen(point, rect);
+        if (previous && screen) {
+          const dist = distanceToSegment(x, y, previous.x, previous.y, screen.x, screen.y);
+          if (dist < 8) consider({ kind: "link-line", id: link.id, dist });
+        }
+        previous = screen;
+      }
+    }
+    return best;
+  }
+
+  function hoverAt(event: PointerEvent) {
+    if (viewOperator || pointer?.moved) return;
+    const hit = pick(event, linkViews.length <= 64);
+    const next = hit && (hit.kind === "node-icon" || hit.kind === "node-title") ? hit.id : null;
+    canvas.style.cursor = hit ? "pointer" : "";
+    if (next === hoverId) return;
+    hoverId = next;
+    applySelectionVisual();
   }
 
   function onKey(event: KeyboardEvent) {
     if ((event.metaKey || event.ctrlKey) && event.altKey) return;
     const target = event.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+    if (event.key === "Enter" && target?.tagName === "BUTTON") return;
+    if (viewOperator) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        endView(false);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        endView(true);
+        return;
+      }
+    }
     const arrow =
       event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown";
     if (arrow) {
@@ -773,38 +1117,171 @@ export function createMindMapScene(
       const direction = (
         { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" } as const
       )[event.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"];
+      if (viewOperator) {
+        if (event.shiftKey) viewOperator.panPixels(direction === "left" ? -28 : direction === "right" ? 28 : 0, direction === "up" ? -28 : direction === "down" ? 28 : 0);
+        else viewOperator.orbitPixels(direction === "left" ? -28 : direction === "right" ? 28 : 0, direction === "up" ? -28 : direction === "down" ? 28 : 0);
+        applyPose(viewOperator.current);
+        requestRender();
+        return;
+      }
       if (event.shiftKey) orbitStep(direction);
+      else if (event.altKey) panStep(direction);
       else if ((event.ctrlKey || event.metaKey) && (direction === "up" || direction === "down")) {
         navigateDepth(direction === "up" ? "closer" : "further");
-      } else if (!event.altKey && !event.ctrlKey && !event.metaKey) navigate(direction);
+      } else if (selectedLinkId && (direction === "left" || direction === "right") && !event.ctrlKey && !event.metaKey) {
+        const link = currentDoc.links[selectedLinkId];
+        if (link) select(direction === "left" ? link.source : link.target, null);
+      } else if (!event.ctrlKey && !event.metaKey) navigate(direction);
+      return;
+    }
+    if (event.key === "Escape") {
+      if (selectedLinkId) {
+        event.preventDefault();
+        select(selectedId, null, false);
+      }
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      note("The reader opens in a later phase");
       return;
     }
     if (event.code === "Minus" || event.code === "NumpadSubtract") {
       event.preventDefault();
-      zoom(1.12);
+      if (viewOperator) {
+        viewOperator.dolly(1.12);
+        applyPose(viewOperator.current);
+      } else zoom(1.12);
     } else if (event.code === "Equal" || event.code === "NumpadAdd") {
       event.preventDefault();
-      zoom(0.88);
-    } else if (event.code === "KeyF" && !event.altKey) {
+      if (viewOperator) {
+        viewOperator.dolly(0.88);
+        applyPose(viewOperator.current);
+      } else zoom(0.88);
+    } else if (event.code === "KeyF" && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       if (event.shiftKey) frameAll();
       else focus();
+    } else if (event.code === "Home") {
+      event.preventDefault();
+      frameAll();
+    } else if (event.code === "KeyV" && !event.repeat && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      beginView();
+    } else if (event.code === "KeyB" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      goHistory(event.shiftKey);
+    } else if ((event.code === "BracketRight" || event.code === "BracketLeft") && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      cycle(event.code === "BracketRight" ? 1 : -1);
     } else if (event.code === "Digit1") setLabelMode("sdf");
     else if (event.code === "Digit2") setLabelMode("css2d");
     else if (event.code === "Digit0") setLabelMode("off");
     else if (event.code === "Digit9") setDensity(density === "all" ? "nearby" : "all");
-    else if (event.code === "KeyM" && !event.shiftKey && !event.altKey) onToggleMap();
+    else if (event.code === "KeyM" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) onToggleMap();
+    requestRender();
+  }
+
+  function cycle(delta: 1 | -1) {
+    if (!selectedId) return;
+    const ids = visibleLinkIds(currentDoc, linkIndex, selectedId);
+    const next = cycleLink(ids, selectedLinkId, delta);
+    if (!next) {
+      note("No visible links");
+      return;
+    }
+    selectLink(next);
+  }
+
+  function goHistory(forward: boolean) {
+    const id = forward ? navHistory.forward() : navHistory.back();
+    if (!id) {
+      note(forward ? "No further nodes" : "No earlier nodes");
+      return;
+    }
+    select(id, null, false);
+  }
+
+  function beginView() {
+    focusAnim = null;
+    zeroControlDeltas();
+    viewOperator = new ViewOperator(readPose());
+    controls.enabled = false;
+    status = "View — move to orbit, Shift pans, wheel zooms. Click or Enter keeps it. Esc or right-click restores it.";
+    publish();
+    requestRender();
+  }
+
+  function endView(confirm: boolean) {
+    if (!viewOperator) return;
+    const pose = confirm ? viewOperator.confirm() : viewOperator.cancel();
+    viewOperator = null;
+    applyPose(pose);
+    controls.enabled = true;
+    zeroControlDeltas();
+    controls.update();
+    status = "Ready";
+    note(confirm ? "View kept" : "View restored");
+    requestRender();
+  }
+
+  function readPose(): CameraPose {
+    return {
+      position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      target: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
+    };
+  }
+
+  function applyPose(pose: CameraPose) {
+    camera.position.set(pose.position.x, pose.position.y, pose.position.z);
+    controls.target.set(pose.target.x, pose.target.y, pose.target.z);
+    camera.lookAt(controls.target);
+    zeroControlDeltas();
+  }
+
+  function note(text: string) {
+    message = text;
+    messageUntil = performance.now() + 1600;
+    publish();
+  }
+
+  function zeroControlDeltas() {
+    const anyControls = controls as unknown as {
+      _sphericalDelta: { set: (x: number, y: number, z: number) => void };
+      _panOffset: { set: (x: number, y: number, z: number) => void };
+      _scale: number;
+    };
+    anyControls._sphericalDelta.set(0, 0, 0);
+    anyControls._panOffset.set(0, 0, 0);
+    anyControls._scale = 1;
+  }
+
+  function updateIconUniforms() {
+    if (!iconMat) return;
+    iconMat.uniforms.uTan.value = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    iconMat.uniforms.uHeight.value = host.clientHeight || 1;
+  }
+
+  function projectToScreen(position: THREE.Vector3, rect: DOMRect): { x: number; y: number } | null {
+    const ndc = position.clone().project(camera);
+    if (ndc.z < -1 || ndc.z > 1) return null;
+    return {
+      x: (ndc.x * 0.5 + 0.5) * rect.width,
+      y: (-ndc.y * 0.5 + 0.5) * rect.height,
+    };
   }
 
   function setLabelMode(mode: LabelMode) {
     labelMode = mode;
     status = mode === "off" ? "Icons only" : mode === "sdf" ? "SDF labels" : "CSS2D labels";
     publish();
+    requestRender();
   }
 
   function setDensity(next: LabelDensity) {
     density = next;
     publish();
+    requestRender();
   }
 
   function stats() {
@@ -827,12 +1304,29 @@ export function createMindMapScene(
       labelMode,
       density,
       selectedId,
-      selectedTitle: nodes.find((node) => node.id === selectedId)?.title ?? "Nothing selected",
+      selectedLinkId,
+      selectionKind: selectedLinkId ? "link" : "node",
+      selectedTitle: linkTitle() ?? nodes.find((node) => node.id === selectedId)?.title ?? "Nothing selected",
       neighbours: neighbourIds.size,
       message: performance.now() < messageUntil ? message : "",
       ready,
       status,
       prepMs,
+      operator: viewOperator ? "view" : "",
+    };
+  }
+
+  function linkTitle(): string | null {
+    if (!selectedLinkId) return null;
+    const view = linkViews.find((item) => item.id === selectedLinkId);
+    if (!view) return selectedLinkId;
+    return view.title ? `${view.title} — ${view.typeLine}` : view.typeLine;
+  }
+
+  function getPose() {
+    return {
+      position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      target: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
     };
   }
 
@@ -860,6 +1354,7 @@ export function createMindMapScene(
     await waitFrames(20);
     frameTimes.length = 0;
     autoOrbit = 90;
+    requestRender();
     await waitFrames(90);
     autoOrbit = 0;
     const sample = [...frameTimes];
@@ -894,25 +1389,32 @@ export function createMindMapScene(
 
   function tick(now: number) {
     if (disposed) return;
-    raf = requestAnimationFrame(tick);
+    raf = 0;
     const dt = now - lastStamp;
     lastStamp = now;
     if (dt > 0 && dt < 8000) {
       frameTimes.push(dt);
       if (frameTimes.length > 180) frameTimes.shift();
     }
+    let animating = false;
     if (focusAnim) {
-      focusAnim.t += reduceMotion ? 1 : dt / 280;
+      animating = true;
+      focusAnim.t += dt / Math.max(cameraMoveMs(reduceMotion), 1);
       const t = ease(Math.min(1, focusAnim.t));
       camera.position.lerpVectors(focusAnim.fromP, focusAnim.toP, t);
       controls.target.lerpVectors(focusAnim.fromT, focusAnim.toT, t);
       if (focusAnim.t >= 1) focusAnim = null;
     }
     if (autoOrbit > 0) {
+      animating = true;
       autoOrbit -= 1;
       orbitStep("right");
     }
-    controls.update();
+    let controlsMoved = false;
+    if (!viewOperator) {
+      if (animating) zeroControlDeltas();
+      controlsMoved = controls.update();
+    }
     updateLabels();
     renderer.render(scene, camera);
     if (labelMode === "css2d") cssRenderer.render(scene, camera);
@@ -920,18 +1422,69 @@ export function createMindMapScene(
       hudTimer = now;
       publish();
     }
+    if (animating || controlsMoved || focusAnim || autoOrbit > 0) requestRender();
   }
 
+  function requestRender() {
+    if (disposed || raf) return;
+    raf = requestAnimationFrame(tick);
+  }
+
+  let lastTitleClick: { id: string; time: number } | null = null;
+
   function onPointerDown(event: PointerEvent) {
+    if (viewOperator && event.button === 2) {
+      event.preventDefault();
+      endView(false);
+      return;
+    }
     pointer = { x: event.clientX, y: event.clientY, moved: false };
   }
   function onPointerMove(event: PointerEvent) {
-    if (!pointer) return;
-    if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 5) pointer.moved = true;
+    if (viewOperator) {
+      if (event.shiftKey) viewOperator.panPixels(event.movementX, event.movementY);
+      else if (event.ctrlKey || event.metaKey) viewOperator.dollyPixels(event.movementY);
+      else if (event.movementX !== 0 || event.movementY !== 0) viewOperator.orbitPixels(event.movementX, event.movementY);
+      applyPose(viewOperator.current);
+      requestRender();
+      return;
+    }
+    if (pointer && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 5) pointer.moved = true;
+    hoverAt(event);
   }
   function onPointerUp(event: PointerEvent) {
-    if (pointer && !pointer.moved && event.button === 0) pick(event);
+    if (viewOperator && event.button === 0) {
+      endView(true);
+      pointer = null;
+      return;
+    }
+    if (pointer && !pointer.moved && event.button === 0) {
+      const hit = pick(event);
+      if (hit?.kind === "node-title") {
+        const now = performance.now();
+        select(hit.id, null);
+        if (lastTitleClick && lastTitleClick.id === hit.id && now - lastTitleClick.time < 450) focus();
+        lastTitleClick = { id: hit.id, time: now };
+      } else if (hit?.kind === "node-icon") {
+        select(hit.id, null);
+        note("Selected. The reader opens from the icon in a later phase.");
+      } else if (hit && (hit.kind === "link-label" || hit.kind === "link-line")) {
+        selectLink(hit.id);
+      }
+    }
     pointer = null;
+  }
+  function onContextMenu(event: Event) {
+    event.preventDefault();
+    if (viewOperator) endView(false);
+  }
+  function onWheel(event: WheelEvent) {
+    if (!viewOperator) return;
+    event.preventDefault();
+    event.stopPropagation();
+    viewOperator.dollyPixels(event.deltaY);
+    applyPose(viewOperator.current);
+    requestRender();
   }
 
   resize();
@@ -940,10 +1493,12 @@ export function createMindMapScene(
   resizeObserver.observe(host);
   window.addEventListener("keydown", onKey);
   canvas.addEventListener("pointerdown", onPointerDown);
-  canvas.addEventListener("pointermove", onPointerMove);
-  canvas.addEventListener("pointerup", onPointerUp);
-  canvas.addEventListener("contextmenu", (event) => event.preventDefault());
-  raf = requestAnimationFrame(tick);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("contextmenu", onContextMenu);
+  canvas.addEventListener("wheel", onWheel, { capture: true, passive: false });
+  controls.addEventListener("change", requestRender);
+  requestRender();
 
   return {
     setLabelMode,
@@ -955,12 +1510,20 @@ export function createMindMapScene(
     runBench,
     benchCase,
     getHud,
+    getPose,
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);
       resizeObserver.disconnect();
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("wheel", onWheel, true);
       controls.dispose();
+      for (const slot of linkLabelSlots) {
+        slot.title.dispose();
+        slot.type.dispose();
+      }
       clearWorld();
       iconTexture.dispose();
       renderer.dispose();
@@ -970,44 +1533,57 @@ export function createMindMapScene(
   };
 }
 
+interface LinkView {
+  id: string;
+  source: string;
+  target: string;
+  points: THREE.Vector3[];
+  label: THREE.Vector3;
+  title: string | null;
+  typeLine: string;
+  dimmed: boolean;
+  color: string;
+  colorHex: number;
+}
+
+interface LinkLabelSlot {
+  title: Text;
+  type: Text;
+  linkId: string | null;
+  titleStr: string;
+  typeStr: string;
+}
+
+interface PickHit {
+  kind: "node-title" | "node-icon" | "link-label" | "link-line";
+  id: string;
+  dist: number;
+}
+
 function ease(t: number): number {
   return t * t * (3 - 2 * t);
 }
 
-function pushArrow(matrices: THREE.Matrix4[], from: THREE.Vector3, to: THREE.Vector3) {
-  const direction = to.clone().sub(from);
-  if (direction.lengthSq() < 1e-6) return;
-  direction.normalize();
-  const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
-  const position = to.clone().addScaledVector(direction, -0.42);
-  const matrix = new THREE.Matrix4().compose(position, quaternion, new THREE.Vector3(1, 1, 1));
+function distanceToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq < 1e-6) return Math.hypot(px - ax, py - ay);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+}
+
+function pushArrow(matrices: THREE.Matrix4[], tip: THREE.Vector3, direction: THREE.Vector3, scale: number) {
+  if (direction.lengthSq() < 1e-8) return;
+  const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
+  const matrix = new THREE.Matrix4().compose(tip, quaternion, new THREE.Vector3(scale, scale, scale));
   matrices.push(matrix);
 }
 
-function routePoints(doc: MapDocument, index: LinkIndex, linkId: string, link: Link): THREE.Vector3[] {
-  const source = asVec(doc.nodes[link.source].position);
-  const target = asVec(doc.nodes[link.target].position);
-  if (link.source === link.target) {
-    const points: THREE.Vector3[] = [];
-    const radius = 0.55;
-    for (let i = 0; i <= 14; i += 1) {
-      const angle = (i / 14) * Math.PI * 2;
-      points.push(new THREE.Vector3(source.x + 0.85 + Math.cos(angle) * radius, source.y + Math.sin(angle) * radius, source.z));
-    }
-    return points;
-  }
-  const waypoints = sortedWaypoints(link).map((entry) => asVec(entry.waypoint.position));
-  if (waypoints.length > 0) return [source, ...waypoints, target];
-  const pair = linksForPair(index, link.source, link.target);
-  const fanCount = pair.length;
-  const fanIndex = Math.max(0, pair.indexOf(linkId));
-  const lateral = (fanCount > 1 ? (fanIndex - (fanCount - 1) / 2) * 0.38 : 0) + (link.style?.bow ?? 0);
-  if (Math.abs(lateral) < 1e-4) return [source, target];
-  const mid = source.clone().add(target).multiplyScalar(0.5);
-  const side = new THREE.Vector3().crossVectors(target.clone().sub(source), new THREE.Vector3(0, 1, 0));
-  if (side.lengthSq() < 1e-8) side.crossVectors(target.clone().sub(source), new THREE.Vector3(1, 0, 0));
-  mid.add(side.normalize().multiplyScalar(lateral));
-  return [source, mid, target];
+function applyLineDistances(geometry: LineSegmentsGeometry, distances: number[]) {
+  const buffer = new THREE.InstancedInterleavedBuffer(new Float32Array(distances), 2, 1);
+  geometry.setAttribute("instanceDistanceStart", new THREE.InterleavedBufferAttribute(buffer, 1, 0));
+  geometry.setAttribute("instanceDistanceEnd", new THREE.InterleavedBufferAttribute(buffer, 1, 1));
 }
 
 function asVec(value: Vec3): THREE.Vector3 {
@@ -1016,10 +1592,22 @@ function asVec(value: Vec3): THREE.Vector3 {
 
 function makeDocIcon(): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
-  canvas.width = 128;
+  canvas.width = 256;
   canvas.height = 128;
   const ctx = canvas.getContext("2d")!;
-  ctx.clearRect(0, 0, 128, 128);
+  ctx.clearRect(0, 0, 256, 128);
+  drawDocPage(ctx, 0, true);
+  drawDocPage(ctx, 128, false);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function drawDocPage(ctx: CanvasRenderingContext2D, originX: number, withLines: boolean) {
+  ctx.save();
+  ctx.translate(originX, 0);
   roundRect(ctx, 24, 16, 80, 100, 8);
   ctx.fillStyle = "#ffffff";
   ctx.fill();
@@ -1030,15 +1618,29 @@ function makeDocIcon(): THREE.CanvasTexture {
   ctx.closePath();
   ctx.fillStyle = "#d5dbe3";
   ctx.fill();
-  ctx.fillStyle = "#8b97a8";
-  for (const y of [58, 72, 86]) {
-    roundRect(ctx, 38, y, y === 86 ? 36 : 52, 6, 3);
-    ctx.fill();
+  if (withLines) {
+    ctx.fillStyle = "#8b97a8";
+    for (const y of [58, 72, 86]) {
+      roundRect(ctx, 38, y, y === 86 ? 36 : 52, 6, 3);
+      ctx.fill();
+    }
   }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
-  return texture;
+  ctx.restore();
+}
+
+function makeLinkText(size: number): Text {
+  const text = new Text();
+  text.font = fontUrl;
+  text.fontSize = size;
+  text.anchorX = "center" as unknown as number;
+  text.anchorY = "middle" as unknown as number;
+  text.color = 0xf4f7fb;
+  text.outlineWidth = "8%" as unknown as number;
+  text.outlineColor = 0x081018;
+  text.visible = false;
+  text.renderOrder = 4;
+  text.frustumCulled = false;
+  return text;
 }
 
 function makeRing(): THREE.Sprite {

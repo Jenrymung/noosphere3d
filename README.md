@@ -1,6 +1,6 @@
 # 3D Mind Map
 
-Keyboard-first desktop app for free-form 3D mind maps. This slice is the Phase 0 scene and the Phase 1 headless map engine: a sample you can fly around, plus a document model with validation, undo, and tests. The reader, tabs, saving, and the link palette are not in this build. The plan is `docs/plan.md`.
+Keyboard-first desktop app for free-form 3D mind maps. This slice is the Phase 0 scene, the Phase 1 headless map engine, and Phase 2 navigation: you can fly around a loaded map and move the selection by keyboard alone. The reader, tabs, saving, and the link palette are not in this build. The plan is `docs/plan.md`.
 
 The UI and the engine are TypeScript (Svelte 5, Vite, Three.js). The desktop shell is Tauri 2. The same page also runs in a browser, which is how the scene was checked on this Linux machine.
 
@@ -17,17 +17,23 @@ The stress map starts selected: 2,304 document icons and about 6,000 links. Swit
 
 | Key | Action |
 | --- | --- |
-| Arrow keys | Select the node in that screen direction |
-| Shift+Arrows | Orbit around the selection |
+| Arrow keys | Select the node in that screen direction. With a link selected, Left/Right jump to its source/target |
+| `]` / `[` | Next / previous visible link on the current node |
+| B / Shift+B | Back / forward through node history |
+| Shift+Arrows | Orbit around the focus point |
+| Alt+Arrows | Pan |
 | `=` / `-` | Zoom in / out |
 | F | Focus the selection |
-| Shift+F | Frame every node |
+| Shift+F or Home | Frame every node |
+| V | View operator: move the mouse to orbit, Shift pans, wheel zooms. Click or Enter keeps the view. Esc or right-click restores it |
 | Ctrl+Up / Ctrl+Down (Cmd on macOS) | Step nearer / farther in depth |
 | 1 / 2 / 0 | SDF labels, CSS2D labels, icons only |
 | 9 | Toggle nearby titles and every title in front of the camera |
 | M | Swap the stress map and the flooding sample |
 
-Mouse: left-drag orbits, right-drag or middle-drag pans, wheel zooms. Click a node to select it.
+Mouse: left-drag orbits, right-drag or middle-drag pans, wheel zooms. Click a title, icon, link label, or link line to select it. Double-click a title to focus it. The scene renders on demand and keeps drawing while the camera is moving.
+
+Icons are billboarded document sprites. A page with text lines has body copy beyond its title; a blank page is title only. Link curves are batched per type (colour, dash pattern, width), with cone arrowheads and a fan around the pair axis. Waypoint links keep the user's route. A self-link draws as a loop. Link labels are two SDF lines (title, then a smaller type name); a link with no title shows only the type.
 
 ## Run the desktop shell
 
@@ -75,6 +81,9 @@ Frame times in the HUD and from **Measure orbit** are real `requestAnimationFram
 - `src/lib/io` — Valibot schema, integrity repair, migrations, canonical JSON
 - `src/lib/input/spatialNav.config.ts` — arrow-key score weights (angle, screen distance, 3D distance, link bonus) and cone limits
 - `src/lib/input/spatial.ts` — that score, used for arrow keys and depth steps
+- `src/lib/input/viewOperator.ts` — operator confirm/cancel, and the V view operator
+- `src/lib/input/navHistory.ts` — back/forward node history
+- `src/lib/scene/route.ts` — curved links, pair fan, waypoint splines, self-link loops
 - `src/lib/scene` — Three.js view and the dummy stress map
 - `samples/urban-flooding.mindmap3d` — the section 7.2 sample, canonical JSON
 

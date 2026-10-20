@@ -47,6 +47,60 @@ export function nodeTitle(node: MapNode): string {
   return deriveTitle(node.title, node.text);
 }
 
+/**
+ * A text-line icon means there is body copy beyond the title.
+ * An explicit title counts any non-empty body. A derived title skips the
+ * line that produced it and looks at the rest.
+ */
+export function nodeHasBody(node: MapNode): boolean {
+  const lines = (node.text ?? "").split(/\r?\n/);
+  const explicit = node.title != null && normalizeTitle(node.title).length > 0;
+  if (explicit) return lines.some((line) => line.trim().length > 0);
+  let skippedTitle = false;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    if (!skippedTitle) {
+      skippedTitle = true;
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+/** Up to two lines of about 28 characters, then an ellipsis. Display only. */
+export function wrapTitle(title: string, maxLines = 2, maxChars = 28): string {
+  const clean = title.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const words = clean.split(" ");
+  const lines: string[] = [];
+  let index = 0;
+  while (index < words.length && lines.length < maxLines) {
+    let line = "";
+    while (index < words.length) {
+      const word = words[index];
+      const next = line ? `${line} ${word}` : word;
+      if (next.length <= maxChars) {
+        line = next;
+        index += 1;
+        continue;
+      }
+      if (!line) {
+        line = `${word.slice(0, Math.max(1, maxChars - 1))}…`;
+        index = words.length;
+      }
+      break;
+    }
+    if (line) lines.push(line);
+  }
+  if (index < words.length && lines.length > 0) {
+    const last = lines[lines.length - 1].replace(/…$/, "");
+    const trimmed = last.slice(0, Math.max(0, maxChars - 1)).trimEnd();
+    lines[lines.length - 1] = `${trimmed}…`;
+  }
+  return lines.join("\n");
+}
+
 export interface LinkLabel {
   /** Null when the link has no explicit or derived title. */
   title: string | null;

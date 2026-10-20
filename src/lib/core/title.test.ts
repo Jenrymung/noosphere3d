@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { urbanFloodingDocument } from "../io/sampleMap";
-import { deriveTitle, linkLabel, nodeTitle, normalizeTitle, stripInlineMarkdown } from "./title";
+import { deriveTitle, linkLabel, nodeHasBody, nodeTitle, normalizeTitle, stripInlineMarkdown, wrapTitle } from "./title";
 
 describe("title derivation", () => {
   it("prefers an explicit title", () => {
@@ -54,5 +54,21 @@ describe("title derivation", () => {
     const mitigates = linkLabel(doc.links.l4, doc.linkTypes["01JB2X9Z0000000000000000T1"]);
     expect(mitigates.title).toBeNull();
     expect(mitigates.typeLine).toBe("≈ mitigates");
+  });
+
+  it("uses a text icon only when there is body copy beyond the title", () => {
+    const doc = urbanFloodingDocument();
+    expect(nodeHasBody(doc.nodes["n-rain"])).toBe(false);
+    expect(nodeHasBody(doc.nodes["n-flood"])).toBe(true);
+    expect(nodeHasBody(doc.nodes["n-drainage"])).toBe(true);
+    expect(nodeHasBody({ text: "", title: "Only a title", position: { x: 0, y: 0, z: 0 } })).toBe(false);
+  });
+
+  it("wraps scene titles to two short lines", () => {
+    expect(wrapTitle("Flooding (city centre)")).toBe("Flooding (city centre)");
+    expect(wrapTitle("One two three four five six seven eight nine")).toBe("One two three four five six\nseven eight nine");
+    const wrapped = wrapTitle("alpha beta gamma delta epsilon zeta eta theta iota kappa lambda");
+    expect(wrapped.split("\n")).toHaveLength(2);
+    expect(wrapped.endsWith("…")).toBe(true);
   });
 });

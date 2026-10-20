@@ -17,7 +17,10 @@
     labelMode: "sdf",
     density: "nearby",
     selectedId: null,
+    selectedLinkId: null,
+    selectionKind: "node",
     selectedTitle: "Loading the map",
+    operator: "",
     neighbours: 0,
     message: "",
     ready: false,
@@ -52,6 +55,8 @@
       benchCase: (mode: LabelMode, density: LabelDensity, frame?: boolean) =>
         scene?.benchCase(mode, density, frame) ?? Promise.reject(new Error("scene not ready")),
       getHud: () => scene?.getHud() ?? hud,
+      getPose: () => scene?.getPose() ?? { position: { x: 0, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 } },
+      loadDocument: (doc: MapDocument) => scene?.load(doc),
     };
     (window as unknown as { __mindmap?: typeof api }).__mindmap = api;
     return () => {
@@ -116,9 +121,18 @@
       <p class="kicker">Selected</p>
       <p class="title">{hud.selectedTitle}</p>
       <p class="meta">
-        {hud.neighbours} linked
-        {#if hud.selectedId}
-          · {hud.selectedId}
+        {#if hud.operator === "view"}
+          View operator
+        {:else if hud.selectionKind === "link"}
+          Link
+          {#if hud.selectedLinkId}
+            · {hud.selectedLinkId}
+          {/if}
+        {:else}
+          {hud.neighbours} linked
+          {#if hud.selectedId}
+            · {hud.selectedId}
+          {/if}
         {/if}
       </p>
     </div>
@@ -193,12 +207,16 @@
 
   <footer class="keys">
     <span><kbd>Arrows</kbd> select</span>
+    <span><kbd>[</kbd> <kbd>]</kbd> cycle links</span>
+    <span><kbd>B</kbd> back</span>
+    <span><kbd>Shift</kbd>+<kbd>B</kbd> forward</span>
     <span><kbd>Shift</kbd>+<kbd>Arrows</kbd> orbit</span>
+    <span><kbd>Alt</kbd>+<kbd>Arrows</kbd> pan</span>
     <span><kbd>=</kbd> <kbd>-</kbd> zoom</span>
     <span><kbd>F</kbd> focus</span>
-    <span><kbd>Shift</kbd>+<kbd>F</kbd> frame</span>
+    <span><kbd>Home</kbd> frame</span>
+    <span><kbd>V</kbd> view</span>
     <span><kbd>Ctrl</kbd>+<kbd>↑</kbd><kbd>↓</kbd> depth</span>
-    <span>drag orbit · right-drag pan · wheel zoom</span>
   </footer>
 
   <p class="live" aria-live="polite">{hud.selectedTitle}</p>
@@ -241,7 +259,7 @@
     font-family: "Source Sans 3", "Segoe UI", sans-serif;
     font-weight: 560;
     line-height: 1.25;
-    white-space: nowrap;
+    white-space: pre-line;
     text-shadow: none;
   }
 
