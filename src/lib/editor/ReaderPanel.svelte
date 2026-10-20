@@ -60,10 +60,12 @@
     draftTitle = seedTitle;
   });
 
+  let headingEl = $state<HTMLHeadingElement | null>(null);
+
   $effect(() => {
     if (mode !== "read") return;
     focusToken;
-    queueMicrotask(() => prose?.focus());
+    queueMicrotask(() => headingEl?.focus());
   });
 
   const node = $derived(shown?.kind === "node" ? doc.nodes[shown.id] : undefined);
@@ -163,7 +165,7 @@
       return;
     }
     if (mode === "read" && event.target instanceof HTMLAnchorElement) return;
-    if (mode === "read" && (event.key === "e" || event.key === "E") && !mod && !event.altKey) {
+    if (mode === "read" && event.code === "KeyE" && !mod && !event.altKey && !event.shiftKey) {
       event.preventDefault();
       onEdit();
       return;
@@ -185,12 +187,12 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<aside class="reader" data-editor-root role="region" aria-label="Reader" bind:this={root} onkeydown={onPanelKey}>
+<aside class="reader" id="region-reader" data-editor-root role="complementary" aria-labelledby="reader-title" bind:this={root} onkeydown={onPanelKey}>
   <header class="reader-head">
     <span class="swatch" style:background={header.color}></span>
     <div>
       <p class="kicker">{header.kicker}</p>
-      <h2>{header.title}</h2>
+      <h2 id="reader-title" tabindex="-1" bind:this={headingEl}>{header.title}</h2>
       <p class="meta">{header.meta}</p>
     </div>
     <button type="button" class:on={pinned} aria-pressed={pinned} onclick={onPin}>
@@ -281,6 +283,11 @@
     margin: 0;
     font-size: 18px;
     line-height: 1.25;
+  }
+
+  h2:focus-visible {
+    outline: 2px solid #e2b657;
+    outline-offset: 3px;
   }
 
   .kicker,

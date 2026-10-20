@@ -62,6 +62,22 @@ These have been decided by the creator. All the earlier open questions have now 
 | **Spatial navigation scoring** *(after Phase 0/1)* | Arrow keys use **one scoring function with tunable weights**: angle away from the arrow direction on screen, screen distance, a **stronger depth / 3D-distance penalty** (so jumps stay in the local cluster), and a **bonus for nodes directly linked** to the current one. The cone limit stays. Weights live in **one config** and are covered by **fixture-layout tests**. See [6.3](#63-spatial-navigation-rules). |
 | **Label technique** *(after Phase 0)* | **troika SDF titles are the default.** In the Phase 0 test, CSS2D was sharper close up but became a wall of cards at ~2,300 titles. A **dev/preferences toggle for CSS2D** stays until both are tested on real GPU hardware. In the MVP a **text outline** provides contrast; the rounded plate behind titles moves to **v1** as an appearance option. |
 | **Repairing missing link types** *(after Phase 0/1)* | If a file has **no link types**, restore **only "relates to"**; never inject the full starter set into an existing map. Links pointing at **missing `typeId`s are reassigned to "relates to"**. **New maps** get the starter set (or, from v1, the user's template). |
+| **Cross-platform builds deferred** *(during Phase 2)* | Windows and macOS builds and checks are **deferred for now**; development continues on **Linux only**. The repo lives on **Cursor Origin**, which doesn't run workflow files itself, and there is **no GitHub mirror yet**. `.github/workflows/build.yml` is **already on `main`**, ready for later. The build matrix must run **before the Phase 7 release at the latest**, ideally through a **GitHub mirror** (GitHub Actions gives public repos free Windows and macOS runners). See [Section 11](#11-roadmap-and-milestones) and [12.1](#121-risks). |
+| **Esc behaviour** *(after Phase 2)* | Esc steps back one level along a fixed chain: **Edit → Reader → selection → nothing selected**. Esc on a **selected link** returns to the **node you arrived from** (from navigation history), not an arbitrary end. If there's no such node (e.g. the link was clicked directly), it clears the selection. Esc on a **selected node** clears the selection. See [6.1](#61-modes) and [6.2](#62-shortcut-map). |
+| **Clicking empty space** *(after Phase 2)* | **Keeps the current selection** (keyboard-first: a stray click never loses your place). Esc clears it. |
+| **Orientation gizmo** *(after Phase 2)* | The corner **axis gizmo is deferred to Phase 6**. Until then, depth cues come from the **ground grid and fog** (plus slightly smaller, dimmer far nodes). |
+| **Arrowhead size** *(after Phase 2)* | Arrowheads **scale with line width** but have a **minimum on-screen height of 12 px** (like icons), so direction stays readable on thin or distant links. |
+| **Graph navigation keys (as built)** *(Phase 2)* | **] / [** cycle the current node's links; **← / →** on a selected link go to its source / target end; **B / Shift+B** go back / forward through navigation history. |
+| **Mod+Enter** *(after Phase 3)* | In **Navigate** mode, Mod+Enter creates an **unlinked node in front of the camera**. This is how you start an empty map or a new cluster, and the node opens straight into **Edit**, like Tab-created nodes. In **Edit** mode, Mod+Enter **commits the edit and returns to the Reader** (a common editor convention). The two uses are in different modes, so they don't clash. |
+| **Linking preferences vs map view state** *(after Phase 4)* | **"Skip the type picker"** and **"Dim nodes with no visible links"** are **app-level Preferences**: kept in the preferences store, set in the Phase 5 Preferences window (Linking and Appearance sections), and **not saved in the map file**. **Type filters** (show / dim / hide / solo) are saved **per map** in `view`, alongside the camera. They are **not** part of undo history and don't count as unsaved edits. |
+| **Link mode with the mouse** *(after Phase 4)* | **Hovering aims**: the node under or nearest the pointer is highlighted as the target. **Click confirms and creates the link**, following the operator rule "click or Enter confirms". Keyboard aiming (arrows, /, N) plus **Enter** also creates it. **Right-click or Esc cancels.** |
+| **Legend entries** *(after Phase 4)* | **Every type in the map is listed**. Types with no links are **greyed out**, not removed. Each entry shows a small **line sample** (colour + dash pattern + arrow), because line style is how colour-blind users tell types apart. |
+| **Label-test toggle keys** *(after Phase 4)* | `` ` `` (backtick) and `` Shift+` `` toggle the label test renderers (SDF / CSS2D comparison). **Dev/test builds only**; not in the cheat sheet or release keymap. |
+| **Link keys (as built)** *(Phase 4)* | **L** Link mode; **T** / **Shift+T** change type (picker / cycle); **R** reverse; **Shift+L** legend; **Mod+Shift+L** link-type manager. |
+| **Mod+N** *(after Phase 5)* | **Mod+N opens a new tab** with a new map, the same as **Mod+T**. The exception is **inside the type picker or the link-type manager**, where it **creates a new link type**. Those are focused modes that capture keys, so the two uses never clash. |
+| **Backup rotation** *(after Phase 5)* | In **autosave** mode, a backup is rotated **at most every 3 minutes**. In manual mode, **each manual save rotates one backup**. Mod+S in autosave mode counts as a manual save. |
+| **View state and saving** *(after Phase 5)* | View state (**camera and type filters**) **never marks the map as unsaved**. It's written into the file on the **next save**. In **manual mode**, closing with only view changes **gives no prompt**, and those view changes are **not saved**: the app never writes the file without a save in manual mode. In autosave mode, view-only changes don't trigger an autosave; they go along with the next one. |
+| **Session restore** *(after Phase 5)* | Restoring all open tabs on launch is a **v1** item, not MVP. |
 
 **What the free-form web decision changes in this plan**
 
@@ -94,7 +110,7 @@ These have been decided by the creator. All the earlier open questions have now 
 - Section 6.3 now describes **one weighted scoring function** instead of a cone score plus a separate depth check.
 - SDF titles with an **outline** are the MVP look; title plates become a v1 option; CSS2D stays behind a toggle.
 - Repair rules for link types are narrower (see [7.4](#74-integrity-rules-checked-on-load-and-after-every-command)).
-- The CI build matrix moves early, because Windows and macOS haven't been verified yet (see [12.1](#121-risks) and [Section 11](#11-roadmap-and-milestones)).
+- Cross-platform (Windows/macOS) builds are **deferred**: development is Linux-only for now, and the build matrix must run before the Phase 7 release at the latest (see [12.1](#121-risks) and [Section 11](#11-roadmap-and-milestones)).
 
 **Recommendations made in this plan** (explained in [Section 10](#10-tech-stack))
 
@@ -221,7 +237,7 @@ These are *likely* audiences, not research findings. The creator should check th
 | Import | Markdown outline (headings or nested lists) to map |
 | Keymap | User-remappable shortcuts |
 | Camera bookmarks | Save and recall viewpoints (**Mod+Alt+Shift+1…9** / **Mod+Alt+1…9**) |
-| Session | Reopen last session's tabs (preference); recent files |
+| Session | **Session restore:** reopen all of the last session's tabs on launch (preference; v1, not MVP); recent files |
 | Label LOD | Smarter level-of-detail and overlap handling for labels on big maps |
 
 ### Why link types are split this way
@@ -295,7 +311,7 @@ Design rules:
 
 - **Smooth, short camera moves** (about 250–400 ms). When reduced motion is on, the camera cuts straight to the new view.
 - **Auto-follow:** when the selection jumps to a node that is off-screen or too far away, the camera eases over to keep it in view.
-- **Orientation aids:** a small axis gizmo in a corner, a subtle ground grid or fog for depth, and depth cues (far nodes are a little smaller and dimmer).
+- **Orientation aids:** a subtle **ground grid and fog** for depth, plus depth cues (far nodes are a little smaller and dimmer). A small **axis gizmo** in a corner is **deferred to Phase 6** (decided after Phase 2).
 - **"Up" stays up:** the camera never rolls, so the horizon stays level.
 
 ### 5.3 Nodes, selection and opening
@@ -331,17 +347,17 @@ Design rules:
 
 ### 5.4 Editing flow
 
-1. **Get into Edit:** from the Reader press **E** or **Enter**, or from Navigate press **E** to skip the Reader and edit straight away. New nodes made with Tab open directly in Edit. Links are edited the same way: their title field sets the label shown in 3D.
+1. **Get into Edit:** from the Reader press **E** or **Enter**, or from Navigate press **E** to skip the Reader and edit straight away. New nodes made with Tab or Mod+Enter open directly in Edit. Links are edited the same way: their title field sets the label shown in 3D.
 2. The panel shows an optional single-line **Title** field (its placeholder shows the derived title) above the **CodeMirror** Markdown editor, with live preview beside or below it. **Alt+T** moves between the title field and the body.
 3. Type Markdown. The preview updates as you type, and the 3D title updates after a short debounce.
-4. **Esc** commits and **goes back to where you came from**: the Reader if you came from it, otherwise Navigate. **Mod+Enter** commits and goes straight to Navigate. Focus returns to the scene with the same item selected.
+4. **Esc** commits and **goes back to the Reader** for that item, so you see the rendered result. Esc again closes the Reader, leaving the item selected; a third Esc clears the selection (the chain **Edit → Reader → selection → nothing**). **Mod+Enter** does the same as Esc here: it commits and returns to the Reader (a common editor convention). In Navigate mode, Mod+Enter instead creates an unlinked node in front of the camera. When the Reader closes, focus returns to the scene with the same item selected.
 5. Each edit session counts as **one undo step**. Long sessions are split into steps after pauses in typing.
 
 **Creating with Tab:** in Navigate mode, **Tab** creates a new node linked from the current node, using the **last-used link type** (or the map's default type, "relates to", at first). It is placed at a sensible offset (see below), selected, and opened straight into Edit mode. So "type, Esc, Tab, type, Esc, Tab…" is a fast brainstorming loop. **Shift+Tab** does the same, but opens the link-type picker first.
 
 **Where new nodes go (auto-placement, then manual):**
 
-1. **Anchor:** the node it's linked from (Tab, Shift+Tab, N in Link mode). For an unlinked node (Mod+Enter), the anchor is the camera's focus point, slightly in front of the camera.
+1. **Anchor:** the node it's linked from (Tab, Shift+Tab, N in Link mode). For an unlinked node (Mod+Enter in Navigate mode, the way to start an empty map or a new cluster), the anchor is a point in front of the camera, at the focus distance.
 2. **Candidates:** about 30–60 directions spread evenly on a sphere around the anchor, at a standard distance (scaled to node size).
 3. **Score each candidate:** heavily penalise being close to any existing node or link label (overlap); prefer directions *away* from the anchor's existing neighbours (so links fan out); prefer positions visible from the current camera and not hidden behind other nodes; slightly prefer staying near the screen plane, so the new node is easy to see.
 4. **Pick the best.** If everything nearby is crowded, try again at 1.5× and then 2× the distance.
@@ -403,7 +419,7 @@ None of the starter types is bidirectional. That option is there for user types 
 | Bidirectional | Arrowheads at both ends | Dots drift both ways |
 | Undirected | No arrowheads | None |
 
-- Arrowheads are real 3D cones (instanced, one batch per type), so they read from any angle. They scale with the link width and are clamped to a minimum on-screen size, so they never disappear.
+- Arrowheads are real 3D cones (instanced, one batch per type), so they read from any angle. They **scale with the link width** but have a **minimum on-screen height of 12 px** (like icons, decided after Phase 2), so direction stays readable on thin or distant links.
 - **Animated flow** is a shader effect (scrolling the dash offset over time). It's off by default, can be switched on for **all links**, **only the selection's links**, or **off**, and is always off when the OS "reduce motion" setting is on. Animation means rendering continuously, so it runs at a capped frame rate and stops when the window is in the background.
 
 #### Several links between the same two nodes
@@ -465,12 +481,12 @@ Following the hotkey + mouse scheme ([5.7](#57-mouse-hotkey-mouse-movement-opera
 1. Press **L** to enter **Link mode**. The current node is the source, and a dashed "rubber band" follows a target cursor.
 2. Move the target with the **arrow keys** (same spatial rules), press **/** to pick a target by name, or **N** to create a new target node.
 3. *Optional shortcut:* press **1–9** while in Link mode to pick a type up front. The rubber band changes to that type's colour and style.
-4. Press **Enter**.
+4. Press **Enter**, or with the mouse, **hover to aim** (the target highlights) and **click to confirm**. The rule is the same as every operator: click or Enter confirms; **right-click or Esc cancels**.
    - If you already picked a type, the link is created straight away.
    - Otherwise the **type picker** pops up next to the rubber band. It lists types with number keys, colour swatches and icons, with the last-used type highlighted. Press **1–9** to pick instantly, type to fuzzy-search, **↑/↓** and **Enter** to choose, **Mod+N** to create a new type from what you typed, or **Esc** to go back to Link mode.
 5. The new link is selected. Press **Enter** to write its Markdown text, or **Esc** to carry on.
 
-A setting "Skip the picker; use the last-used type" turns step 4 into a single keypress for fast linking.
+The app-level preference **"Skip the type picker"** (Preferences → Linking; stored in the preferences store, not in the map) uses the last-used type, so step 4 becomes a single keypress or click.
 
 #### Changing the type of an existing link
 
@@ -493,10 +509,10 @@ A panel (**Mod+Shift+L**, or "Manage link types" in the palette), usable entirel
 
 #### Legend overlay
 
-- A compact, semi-transparent panel in a corner (toggled with **Shift+L**). It lists every type in use with its swatch, line sample, arrow style, icon, number key and count.
+- A compact, semi-transparent panel in a corner (toggled with **Shift+L**). It lists **every type in the map**, each with a small **line sample** (colour + dash pattern + arrow), icon, number key and count. The line sample is essential: line style is how colour-blind users tell types apart.
 - Each entry shows its filter state: **shown**, **dimmed** or **hidden**.
 - **Shift+L** opens it with keyboard focus inside: **↑/↓** move, **Space** cycles shown → dimmed → hidden, **S** "solo" (show only this type, dim the rest), **A** show all, **Enter** opens the type in the manager, **Esc** returns focus to the scene.
-- It updates live as types are added or used. Unused types are greyed out, or hidden by a setting.
+- It updates live as types are added or used. Types with **no links in the map are greyed out but still listed** (decided after Phase 4).
 - The legend is the full key to the line styles. The type name under each link label covers types close up; the legend covers links seen from a distance, where labels are hidden.
 
 #### Filtering and highlighting by type
@@ -508,8 +524,8 @@ A panel (**Mod+Shift+L**, or "Manage link types" in the palette), usable entirel
 | **Hidden** | Not drawn, not picked by the mouse, skipped by link cycling and by follow navigation |
 
 - Quick keys in Navigate mode: **Alt+1…9** toggles type 1–9 between shown and hidden, and **Alt+0** shows all types. The palette has commands such as "Filter: solo *causes*".
-- Option: **"Dim nodes with no visible links"**, so the chosen relationship's structure stands out.
-- Filters are **view state**: never in undo history and never "unsaved changes". They are remembered in the file alongside the camera, so a map reopens with the same view.
+- **"Dim nodes with no visible links"** is an **app-level preference** (Preferences → Appearance; stored in the preferences store, not in the map), so the chosen relationship's structure stands out.
+- Type filters (**show / dim / hide / solo**) are **view state saved per map**: stored in the file's `view` alongside the camera (solo is stored as the resulting shown/dimmed states), so a map reopens with the same view. They are **never in undo history** and never count as unsaved changes. They're written on the next save, and in manual mode, view-only changes are dropped on close without a prompt.
 - The status bar shows a reminder when any filter is active ("2 types hidden"), so hidden links never surprise anyone.
 
 #### Navigating along links of a type
@@ -565,14 +581,14 @@ The mouse works **Blender-style**: the mouse is for **camera and selection**, an
 | Focus camera | Double-click a node's title |
 | Insert waypoint (v1) | Double-click a link's path |
 
-Clicking empty space does **not** clear the selection, so a stray click never loses your place. **Esc** clears it.
+Clicking empty space **keeps the current selection** (decided; keyboard-first), so a stray click never loses your place. **Esc** clears it (on a link, Esc first returns to the node you arrived from).
 
 **Operators**
 
 | Key | Operator | Moving the mouse… | While active |
 |---|---|---|---|
 | **G** | **Grab** the selected node(s) and selected waypoints | moves them in the plane facing the camera | **X / Y / Z** lock to a world axis (press again to unlock); **wheel** or **PageUp/PageDown** moves in depth; **Shift** = precision (slower); **Ctrl** = snap to grid; **arrows** nudge; *(v1)* type a number for an exact distance, e.g. *G X 2 Enter* |
-| **L** | **Link** from the current node | the rubber band follows the pointer; the node nearest the pointer highlights as the target | **click** a node = target; **N** = new node at the pointer; **1–9** pre-pick a type; arrows / **/** still work |
+| **L** | **Link** from the current node | the rubber band follows the pointer; the node nearest the pointer highlights as the target | hover aims (target highlights), **click** confirms and creates the link; **N** = new node at the pointer; **1–9** pre-pick a type; arrows / **/** still work |
 | **V** | **View**: orbit around the focus point | orbits | **Shift** pans; **wheel** or **Ctrl+move** zooms |
 | **S** *(v1)* | **Scale** node size | pointer distance from the selection centre scales it | **Shift** = precision; **Ctrl** = 10% steps |
 
@@ -595,7 +611,7 @@ Clicking empty space does **not** clear the selection, so a stray click never lo
 - **Switching:** **Ctrl+Tab / Ctrl+Shift+Tab** (on every platform, because Cmd+Tab belongs to macOS), **Mod+Shift+] / [**, and **Mod+1…8** for tab 1–8 with **Mod+9** for the last tab. **Mod+Shift+PageUp/PageDown** moves the current tab left or right; tabs can also be dragged with the mouse.
 - **Reopen closed tab:** **Mod+Shift+T** reopens the last closed map from its file.
 - **Between tabs:** copy/paste carries nodes and links. Link types are matched by id, and missing ones are added. In v1, images are copied into the target map's resources folder.
-- **Session restore** (v1, preference): reopen last session's tabs on start-up.
+- **Session restore** (**v1, not MVP**; preference): reopen all of the last session's tabs on launch. In the MVP, each launch starts with no tabs restored (only crash recovery offers unsaved work back).
 - **Performance:** only the active tab renders. Inactive tabs keep their document in memory; their GPU resources are released after a while and rebuilt when you switch back.
 - **Accessibility:** the tab strip is a standard `tablist`, reachable with F6. Switching tabs is announced ("Research, tab 2 of 3, unsaved changes").
 
@@ -648,8 +664,8 @@ The app has a few explicit modes. The current mode is always shown in the status
 |---|---|---|---|
 | **Navigate** (default) | Start-up; Esc from anything | Single keys are commands (Tab, Enter, L, arrows…) | — |
 | **Reader** | Enter or click icon on a node/link | Scroll, Tab through links in the content | E or Enter (to Edit); Esc (close) |
-| **Edit** | E or Enter from Reader; E from Navigate; Tab on a new node | Typing goes into the title field or Markdown editor | Esc (back to where you came from) or Mod+Enter (to Navigate) |
-| **Link** | L | Arrows or the mouse move the target cursor; 1–9 pre-pick a type | Enter or click (create / open type picker); Esc or right-click (cancel) |
+| **Edit** | E or Enter from Reader; E from Navigate; Tab on a new node | Typing goes into the title field or Markdown editor | Esc or Mod+Enter (both commit and return to the Reader) |
+| **Link** | L | Arrows or the mouse move the target cursor; 1–9 pre-pick a type | Enter or click (confirm: create / open type picker); Esc or right-click (cancel). Hover aims |
 | **Type picker** | Enter in Link mode, T, Shift+Tab | 1–9 or type to search | Enter or digit (choose), Esc (back) |
 | **Legend focus** | Shift+L | Arrows, Space, S, A | Esc |
 | **Link-type manager** | Mod+Shift+L | Arrows, Enter, Mod+N, Delete | Esc |
@@ -663,7 +679,7 @@ The app has a few explicit modes. The current mode is always shown in the status
 Mode rules:
 
 - Single-letter shortcuts only work in Navigate mode (and E in the Reader), so they can never fire while you're typing.
-- **Esc steps back one level:** Edit → Reader → Navigate (or Edit → Navigate when you didn't come through the Reader).
+- **Esc steps back one level:** Edit → Reader → selection → nothing selected. Edit always returns to the Reader, with Esc or Mod+Enter, even if you went straight into Edit with E.
 - A modal dialog or palette **captures** keys until it closes, then focus returns exactly where it was.
 - **Operators (G, L, V, S)** always confirm with click/Enter and cancel with Esc/right-click, so the mouse and keyboard follow the same rules.
 - Modes and selection are **per tab**. Switching tabs returns you to that tab's Navigate mode.
@@ -678,10 +694,10 @@ Mode rules:
 |---|---|
 | **Tab** | New node linked from the current node (last-used link type), then Edit mode |
 | **Shift+Tab** | Same, but pick the link type first (type picker), then Edit mode |
-| **Mod+Enter** | New unlinked node near the camera's focus point, then Edit mode |
+| **Mod+Enter** | New **unlinked** node in front of the camera (start an empty map or a new cluster), opening straight into Edit like Tab |
 | **Enter** | **Open** the current node or link in the Reader (rendered Markdown) |
 | **E** | Edit the current node or link directly (skips the Reader) |
-| **L** | Start a link from the current node (Link mode) |
+| **L** | Start a link from the current node (Link mode) (as built) |
 | **G** | **Grab**: move the current node(s) and selected waypoints (mouse or arrows; X/Y/Z constrain) |
 | **S** | Scale node size with the mouse (v1) |
 | **Delete** / **Backspace** | Delete current item(s); links to a deleted node are deleted too (undoable) |
@@ -698,13 +714,14 @@ Mode rules:
 | Key | Action |
 |---|---|
 | **1…9** | Set the selected link(s) to type 1–9 |
-| **T** | Open the type picker for the selected link(s) |
-| **Shift+T** / **Alt+Shift+T** | Cycle to next / previous type |
-| **R** | Reverse direction (swap source and target; waypoint order reverses too) |
+| **T** | Open the type picker for the selected link(s) (as built) |
+| **Shift+T** / **Alt+Shift+T** | Cycle to next / previous type (Shift+T as built) |
+| **R** | Reverse direction (swap source and target; waypoint order reverses too) (as built) |
 | **W** | Enter Waypoint mode for the selected link (v1) |
 | **Shift+W** | Add a waypoint at the path's middle and enter Waypoint mode (v1) |
 | **Shift+Delete** | Clear the link's waypoints (back to auto-routing) (v1) |
 | **Enter** | Open the link in the Reader (type, direction, rendered text); **E** edits its text |
+| **Esc** | Return to the **node you arrived from** (navigation history); if there is none, clear the selection |
 
 #### Navigate mode — moving the selection
 
@@ -712,11 +729,11 @@ Mode rules:
 |---|---|
 | **← → ↑ ↓** | Jump to the nearest node in that on-screen direction (see [6.3](#63-spatial-navigation-rules)) |
 | **Mod+↑ / Mod+↓** | Jump to the nearest node *further away* / *closer* (depth) |
-| **B** / **Shift+B** | Back / forward through navigation history |
-| **]** / **[** | Select the next / previous visible link attached to the current node |
+| **B** / **Shift+B** | Back / forward through navigation history (as built) |
+| **]** / **[** | Cycle the current node's visible links: select the next / previous one (as built) |
 | **Alt+]** / **Alt+[** | Next / previous link of the **active type** on the current node |
 | **.** / **,** | Follow a link of the active type forward (outgoing) / backward (incoming) to the next node |
-| **← / →** (when a link is selected) | Jump to the link's source / target node |
+| **← / →** (when a link is selected) | Go to the link's source / target end (as built) |
 | **Space** | Add/remove the current item to/from the multi-selection (v1) |
 | **Mod+A** | Select all nodes (v1) |
 | **Mod+P** | "Go to…": palette in node-search mode |
@@ -739,8 +756,8 @@ Mode rules:
 |---|---|
 | **/** or **Mod+K** | Command palette (fuzzy search over commands and nodes) |
 | **?** | Shortcut cheat sheet |
-| **Esc** | Back out one level: close overlay, cancel an operator, leave Edit/Link/Waypoint, then clear the selection |
-| **Mod+N** / **Mod+T** | New map in a new tab |
+| **Esc** | Back out one level: close overlay, cancel an operator, leave Link/Waypoint; from Edit the chain is **Edit → Reader → selection → cleared**. On a link, Esc returns to the node you arrived from; on a node, it clears the selection |
+| **Mod+N** / **Mod+T** | New map in a new tab (inside the type picker or link-type manager, Mod+N creates a new link type instead) |
 | **Mod+O** | Open a map in a new tab |
 | **Mod+S** | Save now (in autosave mode too, saves immediately) |
 | **Mod+Shift+S** | Save as |
@@ -750,8 +767,8 @@ Mode rules:
 | **F6** / **Shift+F6** | Move focus between regions: tab strip → scene → Reader/editor panel → status bar |
 | **Mod+= / Mod+-** | Increase / decrease UI and label font size |
 | **O** (Navigate) | Toggle neighbourhood view (v1) |
-| **Shift+L** (Navigate) | Show/hide the legend overlay (and focus it) |
-| **Mod+Shift+L** | Open the link-type manager |
+| **Shift+L** (Navigate) | Show/hide the legend overlay (and focus it) (as built) |
+| **Mod+Shift+L** | Open the link-type manager (as built) |
 | **Alt+1…9** (Navigate) | Toggle visibility of link type 1–9 |
 | **Alt+0** (Navigate) | Show all link types |
 
@@ -759,7 +776,7 @@ Mode rules:
 
 | Key | Action |
 |---|---|
-| **Mod+T** / **Mod+N** | New map in a new tab |
+| **Mod+T** / **Mod+N** | New map in a new tab (Mod+N creates a link type when the type picker or manager has focus) |
 | **Mod+O** | Open map in a new tab (or switch to it if already open) |
 | **Mod+W** | Close tab |
 | **Mod+Shift+T** | Reopen last closed tab |
@@ -777,14 +794,14 @@ Mode rules:
 | **Home / End** | Top / bottom |
 | **Tab / Shift+Tab** | Move through links in the rendered content (Enter opens a link in the external browser) |
 | **Mod+= / Mod+-** | Larger / smaller reading text |
-| **Esc** | Close the Reader; focus returns to the node in the scene |
+| **Esc** | Close the Reader; the item stays selected and focus returns to the scene (next Esc clears the selection) |
 
 #### Edit mode (title field + CodeMirror)
 
 | Key | Action |
 |---|---|
-| **Esc** | Commit and go back to where you came from (Reader, or Navigate) |
-| **Mod+Enter** | Commit and return to Navigate mode |
+| **Esc** | Commit and go back to the Reader (then Esc → selection → cleared) |
+| **Mod+Enter** | Commit and return to the Reader (same as Esc; common editor convention, no clash with Navigate's Mod+Enter) |
 | **Alt+T** | Move between the title field and the Markdown body |
 | **Mod+B / Mod+I** | Bold / italic |
 | **Mod+Shift+K** | Insert link syntax |
@@ -799,7 +816,8 @@ Mode rules:
 | Key | Action |
 |---|---|
 | **Arrows** / **mouse** | Move the target cursor between nodes (spatial rules) / target the node nearest the pointer |
-| **Click** | Choose the node under the pointer as target |
+| **Hover** | Aim: the node under or nearest the pointer is highlighted as the target |
+| **Click** | Confirm: create the link to the highlighted node (opens the type picker if no type was pre-picked and the picker isn't skipped) |
 | **/** | Pick the target by name |
 | **N** | Create a new node as the target |
 | **1…9** | Pre-pick link type 1–9 (rubber band shows its style) |
@@ -813,8 +831,14 @@ Mode rules:
 | **1…9** | Choose type 1–9 immediately |
 | Type | Fuzzy-search type names and descriptions |
 | **↑ / ↓**, **Enter** | Move through and choose |
-| **Mod+N** | Create a new type named after the search text (opens a short form) |
+| **Mod+N** | Create a new type named after the search text (opens a short form). Here Mod+N doesn't open a new tab |
 | **Esc** | Cancel (back to the previous mode) |
+
+#### Dev/test only
+
+| Key | Action |
+|---|---|
+| `` ` `` / `` Shift+` `` | Label test toggles (SDF / CSS2D renderer comparison). Only in dev/test builds; not in the release keymap or cheat sheet |
 
 #### Legend (focused) and link-type manager
 
@@ -824,7 +848,7 @@ Mode rules:
 | **Space** | Cycle shown → dimmed → hidden | — |
 | **S** / **A** | Solo this type / show all | — |
 | **Enter** | Open type in manager | Edit type |
-| **Mod+N** | — | New type |
+| **Mod+N** | — (new tab, as usual) | New type (not a new tab) |
 | **Alt+↑ / Alt+↓** | — | Reorder (changes number keys) |
 | **Delete** | — | Delete type (asks where its links go) |
 | **Esc** | Back to scene | Close |
@@ -1059,7 +1083,7 @@ Notes:
 - Node `n-flood` has an explicit `title`; the others use derived titles ("Heavy rain", "Drainage system").
 - `n-drainage`'s image resolves to `Urban flooding.resources/images/drain-diagram.png` (v1). The MVP shows a placeholder.
 - **Preferences such as the save mode are not in the map file.** They belong to the app, on this computer (see [8.8](#88-preferences-app-settings)).
-- `view` (camera and filters) is saved for convenience but is **not** part of undo history and doesn't count as an unsaved edit.
+- `view` (camera and filters) is saved for convenience but is **not** part of undo history and **never marks the map unsaved**. It's written on the next save; in manual mode, view-only changes are dropped on close without a prompt.
 - Fields the app doesn't know (e.g. in `extensions`, or written by a newer version) are **kept as-is** when saving, never dropped.
 - Optional fields (`title`, `style`, `icon`, `description`, `pinned`, `waypoints`) are left out when they hold defaults. This keeps files small and diffs clean.
 - **Stable, git-friendly output:** object keys are written in a fixed order: nodes and links sorted by id (ULIDs sort by creation time), link types and waypoints sorted by `order` then id. Fields use a fixed order, with 2-space indentation.
@@ -1251,7 +1275,7 @@ The main rule: **`core/` is plain TypeScript with no DOM, Three.js or Tauri insi
 |---|---|
 | **Open/read files** | Read the chosen file and return its text. JSON parsing happens on the frontend, where the schema lives. |
 | **Atomic save** | Write to `name.tmp` in the same folder, flush to disk, then rename over the original. A crash mid-save can't corrupt the file. |
-| **Backups** | Before overwriting, rotate the previous version into a backup (e.g. keep the last 5, in an app-data folder or next to the file, depending on a setting). |
+| **Backups** | Before overwriting, rotate the previous version into a backup (e.g. keep the last 5, in an app-data folder or next to the file, depending on a setting). **Every manual save rotates one; autosave rotates at most every 3 minutes.** |
 | **Recovery files** | Written in **both save modes** to the app-data directory (one per open map), never next to the user's file. Cleared after a successful save and on clean close. |
 | **Preferences** | Stored with the Tauri store plugin in the app's config folder (save mode, timings, backups, appearance, keymap overrides). |
 | **Local only** | No network plugins or HTTP permissions are granted to the WebView in the MVP, and the CSP blocks remote content by default. The v1 *opt-in* update check is the only exception: one HTTPS GET to the GitHub Releases API, permitted for that URL only and inactive unless the user turns it on (see [10.1](#101-licence-distribution-and-updates)). |
@@ -1325,22 +1349,22 @@ Keep the backend small. Almost all app logic belongs on the frontend, in TypeScr
 |---|---|---|
 | When the user's file is written | Only on **Mod+S** / Save As | Automatically: about **2 s after editing pauses**, at most **every 30 s** during continuous editing, plus when the window loses focus and on close. **Mod+S** still saves immediately. |
 | Unsaved indicator | "●" in the title and "Unsaved changes" in the status bar until saved | "Autosaving…" then "Saved 14:32"; "●" only if a save failed or is paused |
-| Closing with changes | Prompt: **Save / Don't save / Cancel** | Final save happens automatically; prompt only if it fails |
+| Closing with changes | Prompt: **Save / Don't save / Cancel**. **View-only changes** (camera, type filters) give **no prompt** and aren't saved; the file is never written without a save | Final save happens automatically; prompt only if it fails |
 | New, never-saved map | "Not saved yet"; close prompts to save | Same, because there's no file to autosave to yet. The first Mod+S picks a location, then autosave takes over. |
 | Crash-recovery file | **Yes** | **Yes** |
-| Atomic writes and backups | **Yes** | **Yes** (backups rotated per session or every few minutes, not on every autosave, to avoid churn) |
+| Atomic writes and backups | **Yes** (each manual save rotates one backup) | **Yes** (backups rotated **at most every 3 minutes**, not on every autosave, to avoid churn; Mod+S rotates one like a manual save) |
 
 **Events:**
 
 | Event | What happens |
 |---|---|
-| **New** (Mod+N / Mod+T) | New tab with an empty map: one node, selected, in Edit mode. Status: "Not saved yet". |
+| **New** (Mod+N / Mod+T; Mod+N means "new link type" inside the type picker/manager) | New tab with an empty map: one node, selected, in Edit mode. Status: "Not saved yet". |
 | **Open** | Native dialog (or OS double-click / "open with") → if already open, switch to its tab → otherwise Rust reads text → frontend parses, migrates, validates → loads in a new tab. If a recovery file newer than the map exists, offer to restore it. |
 | **Save** | Serialize with stable key order → Rust checks for external changes → atomic write (temp file + rename) + backup rotation → mark clean at this revision → delete the recovery file. |
 | **Save As** | Same, with a dialog (default extension `.mindmap3d`); **copies the resources folder** to `<new name>.resources/` (v1); updates the tab title and recent files. |
 | **Recovery file** (both modes) | After any change, a debounced timer (about 3 s idle, at most every 30 s while busy) writes the current map to a recovery file in app data. This protects unsaved work in manual mode, and covers the gap between autosaves. |
 | **Crash recovery** | On start-up, leftover recovery files mean the app didn't close cleanly. Offer **Restore / Discard** for each, showing the time and the original file name. |
-| **Close tab / quit** | Manual mode: prompt if unsaved (one combined dialog on quit if several tabs are unsaved). Autosave mode: flush, then close. Each tab's recovery file is removed on clean close. |
+| **Close tab / quit** | Manual mode: prompt only if there are document changes; view-only changes are discarded silently (one combined dialog on quit if several tabs are unsaved). Autosave mode: flush, then close. Each tab's recovery file is removed on clean close. |
 | **Switching mode** | Turning autosave on doesn't silently save pending changes; the next edit or Mod+S does. Turning it off leaves the file as last saved. |
 | **Save failure** (disk full, permissions, file locked) | Keep the in-memory map and the recovery file, show a clear error with **Retry / Save As…**, and in autosave mode pause autosave until it succeeds. |
 | **External change** | If the file changed on disk (sync tools, git): don't overwrite; offer **Reload / Keep mine (Save As) / Compare** (Compare in v1). In v1 a file watcher detects this as soon as it happens. |
@@ -1372,14 +1396,15 @@ Stored locally in the app's config folder, not in map files. Opened with **Mod+,
 | | Backups to keep per map; location (app data / next to file) | 5; app data |
 | | Recovery-file interval | 3 s idle / 30 s max |
 | **Appearance** | Theme (light / dark / high-contrast in v1); label and reading text size | System; 100% |
+| | Dim nodes with no visible links (app-level; not stored in maps) | Off |
 | | Title plates behind labels (v1) | Off |
-| | Label renderer: *SDF* / *CSS2D* (dev toggle, kept until tested on real GPUs) | SDF |
+| | Label renderer: *SDF* / *CSS2D* (dev toggle, kept until tested on real GPUs; `` ` `` / `` Shift+` `` in dev/test builds) | SDF |
 | | Open nodes in: *Docked Reader panel* / *Pop-over card* | Docked panel |
 | **Motion** | Reduce motion (follows the OS by default) | System |
 | | Animated link flow (v1): off / selection / all | Off |
-| **Linking** | Skip the link-type picker (use last-used type) | Off |
+| **Linking** | Skip the type picker (use last-used type; app-level, not stored in maps) | Off |
 | | Default link types for new maps: *Built-in starter set* / *My template* (v1) | Built-in |
-| **Tabs** | Reopen last session's tabs on start-up (v1) | Off |
+| **Tabs** | Session restore: reopen all last session's tabs on launch (v1, not MVP) | Off |
 | **Resources** (v1) | Default resources folder name pattern | `<map name>.resources` |
 | | When saving as: copy whole folder / only referenced files | Whole folder |
 | **Privacy** | Load remote images in Markdown | Off |
@@ -1513,55 +1538,64 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 - Thorough unit and property tests.
 - **Exit:** a complete headless "map engine", fully tested.
 
-### Phase 2 — Scene and navigation (L)
+### Phase 2 — Scene and navigation (L) — *done*
 
-- **First: set up the GitHub Actions build matrix** (Windows, macOS, Linux; build + unit tests on every push), moved forward from Phase 7 because Windows/macOS are still unverified. Phase 7 keeps only the release/publishing parts.
+- Development and testing on **Linux only** for now (cross-platform builds deferred; see below).
 - Apply the Phase 0/1 decisions: **MAJOR.MINOR version checks** (refuse newer major, round-trip newer minor), narrowed **link-type repair**, **weighted spatial-navigation scoring** with its config and fixture tests, SDF titles with outline plus the CSS2D toggle.
 
 - Instanced doc-icon sprites with SDF titles above them, batched curved links (per type: colour, pattern, width), arrowheads, pair fanning, SDF titles, link labels, selection highlight.
 - Orbit camera (keyboard + mouse), focus, frame all, auto-follow, reduced motion; **operator framework** with the **V** view operator; mouse selection (click title, icon, label, line).
 - Two-line link labels (title + type name); self-link loop rendering for files that contain one.
-- Spatial navigation, depth navigation, link cycling, back/forward history.
+- Spatial navigation, depth navigation, link cycling (] / [), link ends (← / → on a link), back/forward history (B / Shift+B), Esc chain; ground grid and fog as depth cues (axis gizmo deferred to Phase 6); arrowheads scaled by line width with a minimum on-screen size.
 - Render-on-demand loop.
 - **Exit:** you can fly around and navigate a loaded sample map by keyboard alone.
 
-### Phase 3 — Editing (M)
+### Phase 3 — Editing (M) — *done*
 
 - **Reader panel** (Enter/click icon opens rendered Markdown; Esc closes; pin reader), then **Edit** (E/Enter) with title field, CodeMirror 6 and live markdown-it preview, sanitized.
 - Enter/Esc edit flow (nodes and links, with title fields); Tab creation (last-used type); **auto-placement** (candidate scoring + local nudge, existing nodes never move); delete; **G grab operator** (mouse + keys, axis constraints, depth, precision, snap, confirm/cancel); positions persist.
 - **Exit:** you can build a map from scratch with the keyboard.
 
-### Phase 4 — Links and link types (M)
+### Phase 4 — Links and link types (M) — *done*
 
-- Link mode with rubber band, spatial targeting, **mouse targeting** (pointer highlight, click to choose, right-click cancels), palette targeting, N for new target.
+- Link mode with rubber band, spatial targeting, **mouse targeting** (hover aims, click confirms and creates, right-click/Esc cancels), palette targeting, N for new target.
 - **Type picker** (1–9, fuzzy search, create new type), pre-picking in Link mode, Shift+Tab flow.
 - Change type of selected links (1–9, T, Shift+T), reverse direction (R); link text editing.
 - **Link-type manager (basic)** with safe delete/reassign.
-- **Legend overlay** with show/dim/hide/solo; Alt+1…9 quick toggles; status-bar filter reminder.
+- **Legend overlay** (every type listed with a line sample; unused types greyed) with show/dim/hide/solo; Alt+1…9 quick toggles; status-bar filter reminder.
 - Type navigation: Alt+[/], follow with . and ,.
 - **Exit:** all MVP node, link and link-type operations work by keyboard.
 
-### Phase 5 — Files, tabs and safety (M–L)
+### Phase 5 — Files, tabs and safety (M–L) — *done*
 
 - Rust commands: atomic save, external-change check, backups, recovery files, dialogs, close guard, preferences store.
 - **Save controller with both modes:** manual (default) with unsaved indicator and close prompt; autosave-to-file (debounce + max interval + on blur/close); recovery file in both; crash-recovery flow; open/new/save/save as; save-failure handling.
-- Preferences window (Mod+,) with the saving, appearance and linking settings.
+- Preferences window (Mod+,) with the saving, appearance and linking settings, including **Skip the type picker** and **Dim nodes with no visible links**, moved from Phase 4's interim toggles into the preferences store.
 - **Tabs:** workspace store, per-tab history/selection/view/save state/recovery file, tab strip, Mod+T/W/O, Ctrl+Tab, Mod+1…9, reopen closed tab, combined quit dialog.
 - **`.mindmap3d` file association** in the bundler config; single-instance plugin (OS open → new tab).
 - Check that the app makes no network requests (local-only).
 - **Exit:** "pull the power cord" test passes; no data lost beyond the last few seconds.
+- **Outcome:** power-cord test **passes**; a headless run made **no non-localhost network requests**. Mod+N/Mod+T, backup rotation, view-state saving and session-restore scope were settled (see Decisions).
 
-### Phase 6 — Keyboard polish and accessibility baseline (M)
+### Phase 6 — Keyboard polish and accessibility baseline (M) — *in progress*
 
+- **Corner axis gizmo** (deferred from Phase 2): small, keyboard-ignorable, hideable in Preferences.
 - Command palette (commands + nodes), help sheet, status bar hints.
 - ARIA tree mirror and live announcements; F6 region cycling; focus return after dialogs.
 - Non-US layout checks; OS shortcut conflict checks.
 - **Exit:** the full MVP is usable with no mouse and with a screen reader at a basic level.
 
+### Deferred: cross-platform build matrix (S) — *before Phase 7 at the latest*
+
+- **Status:** deferred by decision. The repo is on Cursor Origin, which doesn't run workflow files; `.github/workflows/build.yml` is ready on `main`.
+- **Recommended route:** set up a **GitHub mirror** of the repo so the existing workflow runs on GitHub Actions, which gives public repos **free Windows and macOS runners**. Build and run unit tests on Windows, macOS and Linux for every push.
+- **Then check by hand on real Windows and Mac machines:** WebView2/WKWebView differences, OS shortcut clashes, file association for `.mindmap3d`, and SDF vs CSS2D labels on real GPUs (which decides the CSS2D toggle).
+- **Hard deadline:** this must be done, and any fixes landed, **before the Phase 7 release work**. Doing it earlier (any time a mirror is convenient) reduces the risk of late surprises.
+
 ### Phase 7 — MVP hardening and release (M)
 
 - Performance pass against the targets in [Section 9](#9-performance).
-- **Release pipeline** (the CI build matrix already exists from Phase 2): `tauri-action` building signed/unsigned installers for all three platforms; GitHub Releases with notes, SHA-256 checksums and artifact attestations; Linux AppImage/deb/rpm.
+- **Release pipeline** (requires the deferred cross-platform build matrix to be running and green first): `tauri-action` building signed/unsigned installers for all three platforms; GitHub Releases with notes, SHA-256 checksums and artifact attestations; Linux AppImage/deb/rpm.
 - **Signing** per [10.1](#101-licence-distribution-and-updates): Windows via SignPath (if accepted) or unsigned with instructions; macOS notarized if the Apple membership is taken, otherwise unsigned with instructions.
 - **Open-source housekeeping:** licence files (MIT OR Apache-2.0 recommended), third-party notices in About, CONTRIBUTING with DCO, published JSON schema.
 - *Help → Check for updates…* opens the Releases page (no in-app network use).
@@ -1596,8 +1630,8 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 | **Text hard to read in 3D** | High: core experience | Medium | Only short SDF titles in 3D, clamped size, outlines (plates optional in v1), LOD; full text always in the Reader; Phase 0 confirmed SDF over CSS2D at scale |
 | **Users get lost in 3D** | High | Medium | Orbit-around-selection camera, no roll, frame-all, auto-follow, neighbourhood view, focus mode, camera bookmarks |
 | **Spatial arrow navigation feels random** | High for keyboard-first | Medium | One weighted scoring function (angle, screen distance, strong depth penalty, link bonus) with tunable config and fixture tests, cone limit, "go back" memory, graph-based and type-based navigation (follow, back) as a reliable fallback; user testing early |
-| **WebView differences** (esp. WebKitGTK on Linux) | Medium | Medium–High | Test all three OSes from Phase 0; WebGL 2 only; avoid cutting-edge web APIs |
-| **Windows and macOS unverified so far** (after Phase 0/1, only the builder's platform has been exercised) | High | Medium | **Move the GitHub Actions build matrix (Windows, macOS, Linux) to the start of Phase 2**, building and running unit tests on every push; smoke-test the app by hand on a real Windows PC and Mac as soon as possible; include real-GPU checks of the SDF vs CSS2D label decision |
+| **WebView differences** (esp. WebKitGTK on Linux) | Medium | Medium–High | Linux only for now; all three OSes once the deferred build matrix runs (before Phase 7); WebGL 2 only; avoid cutting-edge web APIs |
+| **Windows and macOS unverified, deliberately deferred** (development is Linux-only; no GitHub mirror yet, and Cursor Origin doesn't run workflows) | High | Medium–High (grows the longer it waits) | Until the matrix runs, these stay **untested**: **WebView2 (Windows) / WKWebView (macOS) differences**, **OS shortcut clashes**, **`.mindmap3d` file association**, and **SDF labels on real GPUs**. Run the ready `.github/workflows/build.yml` via a **GitHub mirror** (free Windows/macOS runners for public repos) **before the Phase 7 release at the latest**, then smoke-test by hand on a real Windows PC and Mac. Meanwhile, avoid Linux-only assumptions (paths, shortcuts, WebKitGTK quirks) |
 | **SDF label decision based on limited hardware** | Medium | Medium | CSS2D toggle kept until tested on real GPUs (integrated and discrete, all three OSes) |
 | **Keyboard conflicts** (OS shortcuts, non-US layouts, IME) | Medium | High | Mod-key abstraction, alternatives for symbol keys, remappable keymap, per-OS testing |
 | **DOM label performance** | Medium | Medium (if CSS2D) | SDF labels, label cap, culling |
@@ -1661,7 +1695,7 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 | **Visual regression** | Screenshots of the scene with a fixed camera and sample map, including every starter link type, arrowheads, parallel links and dimmed/hidden types, to catch rendering breakage | Playwright screenshots |
 | **Performance** | Generated maps of 1k / 5k / 10k nodes: frame time while orbiting, time to load/save, memory; tracked over time | Custom benchmark script + browser performance tools |
 | **Accessibility** | Automated checks of the HTML UI; manual screen-reader passes; "unplug the mouse" full-workflow test before every release | axe-core; NVDA, VoiceOver, Orca |
-| **Cross-platform** | CI builds and tests on Windows, macOS and Linux for every change, **from the start of Phase 2** | GitHub Actions |
+| **Cross-platform** | CI builds and tests on Windows, macOS and Linux for every change. **Deferred:** Linux-only until the GitHub mirror runs `.github/workflows/build.yml`, before Phase 7 at the latest | GitHub Actions (via mirror) |
 | **Usability** | Early sessions where a few people try keyboard navigation, editing and typed linking (Phase 0, after Phase 3, after Phase 4). Check that people can tell the starter types apart and find the picker and legend without help. | Watching + notes |
 
 **Definition of done for MVP:** all MVP features work by keyboard alone on all three OSes; undo/redo and save/load round-trip property tests pass; no data lost in kill-the-app tests; performance targets for 1,000 nodes met; basic screen-reader flow works.

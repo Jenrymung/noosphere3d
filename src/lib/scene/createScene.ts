@@ -134,6 +134,7 @@ export interface MindMapScene {
   setLabelScale(scale: number): void;
   setReduceMotion(mode: "system" | "on" | "off"): void;
   setBackdrop(color: string): void;
+  setAxisGizmo(on: boolean): void;
   dispose(): void;
 }
 
@@ -163,7 +164,10 @@ export function createMindMapScene(
   let labelUserScale = 1;
   const canvas = document.createElement("canvas");
   canvas.className = "scene-canvas";
+  canvas.id = "region-scene";
   canvas.tabIndex = 0;
+  canvas.setAttribute("role", "application");
+  canvas.setAttribute("aria-label", "Map scene");
   host.appendChild(canvas);
 
   const renderer = new THREE.WebGLRenderer({
@@ -179,6 +183,21 @@ export function createMindMapScene(
   const cssRenderer = new CSS2DRenderer();
   cssRenderer.domElement.className = "css2d-layer";
   host.appendChild(cssRenderer.domElement);
+
+  let showAxisGizmo = true;
+  let viewWidth = 1;
+  let viewHeight = 1;
+  const gizmoScene = new THREE.Scene();
+  const gizmoCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 20);
+  const axisGroup = new THREE.Group();
+  for (const [dir, color] of [
+    [new THREE.Vector3(1, 0, 0), 0xd55e00],
+    [new THREE.Vector3(0, 1, 0), 0x009e73],
+    [new THREE.Vector3(0, 0, 1), 0x0072b2],
+  ] as const) {
+    axisGroup.add(new THREE.ArrowHelper(dir, new THREE.Vector3(0, 0, 0), 0.85, color, 0.24, 0.16));
+  }
+  gizmoScene.add(axisGroup);
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.08, 2000);
@@ -266,6 +285,8 @@ export function createMindMapScene(
   function resize() {
     const width = host.clientWidth || 1;
     const height = host.clientHeight || 1;
+    viewWidth = width;
+    viewHeight = height;
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
@@ -1274,6 +1295,7 @@ export function createMindMapScene(
         return;
       }
     }
+    if (event.key === "Tab" && !sceneHasFocus()) return;
     if (!grab && !viewOperator && hooks.sceneKey?.(event)) return;
     const arrow =
       event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown";
@@ -1644,12 +1666,39 @@ export function createMindMapScene(
     }
     updateLabels();
     renderer.render(scene, camera);
+    renderAxisGizmo();
     if (labelMode === "css2d") cssRenderer.render(scene, camera);
     if (now - hudTimer > 250) {
       hudTimer = now;
       publish();
     }
     if (animating || controlsMoved || focusAnim || autoOrbit > 0) requestRender();
+  }
+
+  function renderAxisGizmo() {
+    if (!showAxisGizmo) return;
+    const size = Math.max(72, Math.min(96, Math.floor(Math.min(viewWidth, viewHeight) * 0.14)));
+    const marginX = 20;
+    const marginY = 68;
+    const x = Math.max(8, viewWidth - size - marginX);
+    const offset = camera.position.clone().sub(controls.target);
+    if (offset.lengthSq() < 1e-6) offset.set(0, 0.2, 1);
+    gizmoCamera.position.copy(offset.normalize().multiplyScalar(2.6));
+    gizmoCamera.up.copy(camera.up);
+    gizmoCamera.lookAt(0, 0, 0);
+    renderer.clearDepth();
+    renderer.setScissorTest(true);
+    renderer.setViewport(x, marginY, size, size);
+    renderer.setScissor(x, marginY, size, size);
+    renderer.render(gizmoScene, gizmoCamera);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, viewWidth, viewHeight);
+  }
+
+  function sceneHasFocus(): boolean {
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) return true;
+    return active === canvas;
   }
 
   function requestRender() {
@@ -2210,6 +2259,11 @@ export function createMindMapScene(
     setLabelScale,
     setReduceMotion,
     setBackdrop,
+    setAxisGizmo(on: boolean) {
+      showAxisGizmo = on;
+      canvas.dataset.axisGizmo = on ? "on" : "off";
+      requestRender();
+    },
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);

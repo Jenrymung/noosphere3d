@@ -12,14 +12,24 @@
   } = $props();
 </script>
 
-<div class="tabs" role="tablist" aria-label="Open maps">
+<div class="tabs" id="region-tabs" role="tablist" aria-label="Open maps" tabindex="0">
   {#each tabs as tab (tab.id)}
-    <div class="tab" class:on={tab.id === activeId}>
-      <button type="button" role="tab" aria-selected={tab.id === activeId} onclick={() => onActivate(tab.id)}>
+    <div class="tab" class:on={tab.id === activeId} role="presentation">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={tab.id === activeId}
+        aria-label={tab.mark ? `${tab.title}, unsaved` : undefined}
+        onclick={(event) => {
+          const target = event.target;
+          if (target instanceof Element && target.closest(".close")) onClose(tab.id);
+          else onActivate(tab.id);
+        }}
+      >
         {#if tab.mark}<span class="dot" aria-hidden="true">●</span>{/if}
-        {tab.title}
+        <span class="name">{tab.title}</span>
+        <span class="close" aria-hidden="true">×</span>
       </button>
-      <button type="button" class="close" aria-label={`Close ${tab.title}`} onclick={() => onClose(tab.id)}>×</button>
     </div>
   {/each}
 </div>
@@ -31,6 +41,11 @@
     gap: 6px;
     overflow: auto;
     max-width: min(640px, 46vw);
+  }
+
+  .tabs:focus-visible {
+    outline: 2px solid #e2b657;
+    outline-offset: 3px;
   }
 
   .tab {
@@ -55,15 +70,20 @@
   }
 
   button[role="tab"] {
-    padding: 4px 4px 4px 10px;
-    max-width: 180px;
+    display: flex;
+    align-items: center;
+    padding: 4px 0 4px 10px;
+    max-width: 200px;
+  }
+
+  .name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .close {
-    padding: 4px 8px 4px 2px;
+    padding: 4px 8px 4px 6px;
     color: #9aabbd;
   }
 

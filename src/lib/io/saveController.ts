@@ -65,6 +65,7 @@ export function needsClosePrompt(input: {
 
 export function shouldAutosave(clock: SaveClock, now: number, reason: "tick" | "blur" | "close" | "manual"): boolean {
   if (reason === "manual") return true;
+  // Camera moves and type filters leave dirty false, so they never start an autosave.
   if (clock.mode !== "autosave" || !clock.path || !clock.dirty || clock.paused || clock.conflict || clock.saving) return false;
   if (reason === "blur" || reason === "close") return true;
   if (clock.lastEditAt == null) return false;

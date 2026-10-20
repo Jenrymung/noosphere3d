@@ -5,12 +5,18 @@
   import { freshTrack, markEdited, markSaved, promptFor, resolveTheme, statusFor, ensureSuffix, tabTitle, windowTitle, type SaveTrack } from "$lib/app/tabState";
   import { createId } from "$lib/core/document";
   import { MapSession } from "$lib/core/session";
+  import { liveAnnouncement } from "$lib/a11y/announce";
+  import { neighbourhoodTree } from "$lib/a11y/tree";
   import { linkLabel, nodeTitle } from "$lib/core/title";
   import type { LinkTypeFilter, MapDocument, Vec3 } from "$lib/core/types";
   import ReaderPanel from "$lib/editor/ReaderPanel.svelte";
   import type { TypeDraft } from "$lib/input/linkForm";
   import { linkPointerConfirm } from "$lib/input/linkClick";
+  import { statusHint, type HintMode } from "$lib/input/hints";
+  import { bindingById, helpSections, matchesChord } from "$lib/input/keymap";
   import { modEnterAction } from "$lib/input/modEnter";
+  import { PALETTE_COMMANDS, type PaletteHit } from "$lib/input/palette";
+  import { cycleRegion, type RegionId } from "$lib/input/regions";
   import {
     cycleTypeId,
     cycleTypedLink,
@@ -41,7 +47,9 @@
   import { stressMap } from "$lib/scene/dummyMap";
   import { placeNode } from "$lib/scene/placement";
   import FileDialogs, { type AppDialog } from "$lib/ui/FileDialogs.svelte";
+  import HelpSheet from "$lib/ui/HelpSheet.svelte";
   import LinkChrome from "$lib/ui/LinkChrome.svelte";
+  import Palette from "$lib/ui/Palette.svelte";
   import PreferencesPanel from "$lib/ui/PreferencesPanel.svelte";
   import TabStrip from "$lib/ui/TabStrip.svelte";
 
@@ -110,6 +118,11 @@
   let pulse = $state(0);
   let preferences = $state({ ...DEFAULT_PREFERENCES });
   let prefsOpen = $state(false);
+  let paletteOpen = $state(false);
+  let helpOpen = $state(false);
+  let liveText = $state("");
+  let focusBack: HTMLElement | null = null;
+  let dialogWasOpen = false;
   let dialog = $state<AppDialog | null>(null);
   let bridge: FileBridge = createMemoryBridge();
   let doc = $state(openingSession.doc);
@@ -189,6 +202,26 @@
     const track = saves.get(activeId);
     return track ? statusFor(track, preferences, session.history.stateId).text : "";
   });
+  const modeHint = $derived.by(() => {
+    linkMode;
+    panel;
+    hud.operator;
+    return statusHint(hintMode());
+  });
+  const tree = $derived.by(() => {
+    revision;
+    hud.selectedId;
+    return neighbourhoodTree(session.doc, session.index, hud.selectedId);
+  });
+  const paletteNodes = $derived.by(() => {
+    revision;
+    return Object.entries(session.doc.nodes).map(([id, node]) => ({
+      id,
+      title: nodeTitle(node) || "Untitled",
+      text: node.text,
+    }));
+  });
+  const shortcutSections = helpSections();
 
   function publish(next: HudSnapshot) {
     hud = next;
@@ -249,6 +282,7 @@
     scene?.setLabelScale(next.labelScale);
     scene?.setReduceMotion(next.reduceMotion);
     scene?.setBackdrop(theme === "light" ? "#f4f1ea" : "#101820");
+    scene?.setAxisGizmo(next.showAxisGizmo);
     touch();
   }
 
@@ -266,6 +300,127 @@
 
   function fail(error: unknown) {
     scene?.flash(error instanceof Error ? error.message : "That edit didn't apply");
+  }
+
+  function rememberFocus() {
+    const active = document.activeElement;
+    focusBack = active instanceof HTMLElement ? active : null;
+  }
+
+  function restoreFocus() {
+    const target = focusBack;
+    focusBack = null;
+    if (target && document.contains(target)) target.focus();
+    else scene?.focusCanvas();
+  }
+
+  function typingTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable || Boolean(target.closest(".cm-editor"));
+  }
+
+  function hintMode(): HintMode {
+    if (linkMode) return "link";
+    if (hud.operator === "grab") return "grab";
+    if (hud.operator === "view") return "view";
+    if (panel === "edit") return "edit";
+    if (panel === "read") return "read";
+    return "navigate";
+  }
+
+  function openedTitle(): string | null {
+    if (panel === "closed" || !shown) return null;
+    if (shown.kind === "node") {
+      const node = session.doc.nodes[shown.id];
+      return node ? nodeTitle(node) || "Untitled" : "Missing node";
+    }
+    const link = session.doc.links[shown.id];
+    if (!link) return "Missing link";
+    const label = linkLabel(link, session.doc.linkTypes[link.typeId]);
+    return label.title || session.doc.linkTypes[link.typeId]?.name || "Link";
+  }
+
+  function openPalette() {
+    if (paletteOpen) return;
+    rememberFocus();
+    helpOpen = false;
+    paletteOpen = true;
+  }
+
+  function closePalette() {
+    if (!paletteOpen) return;
+    paletteOpen = false;
+    restoreFocus();
+  }
+
+  function openHelp() {
+    if (helpOpen) return;
+    rememberFocus();
+    paletteOpen = false;
+    helpOpen = true;
+  }
+
+  function closeHelp() {
+    if (!helpOpen) return;
+    helpOpen = false;
+    restoreFocus();
+  }
+
+  function togglePreferences() {
+    if (prefsOpen) {
+      prefsOpen = false;
+      restoreFocus();
+      return;
+    }
+    rememberFocus();
+    prefsOpen = true;
+  }
+
+  function cycleFocus(delta: 1 | -1) {
+    const active = document.activeElement;
+    let current: RegionId = "scene";
+    if (active instanceof HTMLElement) {
+      if (active.closest("#region-tabs")) current = "tabs";
+      else if (active.closest("#region-reader")) current = "reader";
+      else if (active.id === "region-status" || active.closest("#region-status")) current = "status";
+    }
+    const next = cycleRegion(current, delta, panel !== "closed");
+    if (next === "tabs") document.getElementById("region-tabs")?.focus();
+    else if (next === "scene") scene?.focusCanvas();
+    else if (next === "reader") (document.getElementById("reader-title") ?? document.getElementById("region-reader"))?.focus();
+    else document.getElementById("region-status")?.focus();
+  }
+
+  function runCommand(id: string) {
+    closePalette();
+    if (id === "save") void saveActive();
+    else if (id === "save-as") void saveAs(activeId);
+    else if (id === "open") void openDialog();
+    else if (id === "new-tab") newMap();
+    else if (id === "close-tab") void requestClose(activeId);
+    else if (id === "preferences") togglePreferences();
+    else if (id === "undo") undo();
+    else if (id === "redo") redo();
+    else if (id === "help") openHelp();
+    else if (id === "legend") screen = screen?.name === "legend" ? null : { name: "legend" };
+    else if (id === "types") screen = screen?.name === "manager" ? null : { name: "manager" };
+    else if (id === "link") beginLink();
+    else if (id === "frame") scene?.frameAll();
+    else if (id === "focus") scene?.focus();
+    else if (id === "new-node") onModEnter();
+    else if (id === "delete") deleteSelection();
+    else if (id === "gizmo") updatePreferences({ ...preferences, showAxisGizmo: !preferences.showAxisGizmo });
+  }
+
+  function runPalette(hit: PaletteHit) {
+    if (hit.kind === "node") {
+      closePalette();
+      scene?.selectNode(hit.id);
+      scene?.focus();
+      scene?.focusCanvas();
+      return;
+    }
+    runCommand(hit.id);
   }
 
   function overlayFocused() {
@@ -1492,7 +1647,28 @@
   }
 
   function onFileKey(event: KeyboardEvent) {
+    if (event.key === "F6") {
+      event.preventDefault();
+      event.stopPropagation();
+      cycleFocus(event.shiftKey ? -1 : 1);
+      return;
+    }
+    if (paletteOpen || helpOpen) return;
     if (dialog) return;
+    const typing = typingTarget(event.target);
+    if (!typing && bindingById("help").chords.some((chord) => matchesChord(chord, event))) {
+      event.preventDefault();
+      event.stopPropagation();
+      openHelp();
+      return;
+    }
+    if (!typing && bindingById("palette").chords.some((chord) => matchesChord(chord, event))) {
+      if (event.key === "/" && (linkMode || screen?.name === "search")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openPalette();
+      return;
+    }
     const mod = event.metaKey || event.ctrlKey;
     if (event.key === "Tab" && event.ctrlKey && !event.altKey && !event.metaKey) {
       event.preventDefault();
@@ -1536,7 +1712,7 @@
     if (event.key === ",") {
       event.preventDefault();
       event.stopPropagation();
-      prefsOpen = !prefsOpen;
+      togglePreferences();
       return;
     }
     if (key === "n" && !event.shiftKey && !screen && panel !== "edit" && !linkMode && !prefsOpen) {
@@ -1708,7 +1884,7 @@
       redo,
       togglePin,
       commitMove,
-      blocksSceneKeys: () => screen !== null || prefsOpen || dialog !== null,
+      blocksSceneKeys: () => screen !== null || prefsOpen || dialog !== null || paletteOpen || helpOpen,
       sceneKey,
       linkActive: () => linkMode !== null,
       hoverLinkTarget: (id) => {
@@ -1772,6 +1948,10 @@
         dirty: session.history.stateId !== (saves.get(activeId)?.savedStateId ?? 0),
         dialog: dialog?.kind ?? null,
         prefsOpen,
+        paletteOpen,
+        helpOpen,
+        live: liveText,
+        axisGizmo: preferences.showAxisGizmo,
       }),
       flushRecovery: () => writeRecovery(activeId),
       skipClosePrompt: () => {
@@ -1781,8 +1961,11 @@
       closeTab: () => requestClose(activeId),
       save: () => saveActive(),
       openPreferences: () => {
+        if (!prefsOpen) rememberFocus();
         prefsOpen = true;
       },
+      openPalette: () => openPalette(),
+      closePalette: () => closePalette(),
       setPreferences: (partial: Partial<Preferences>) => updatePreferences({ ...preferences, ...partial }),
       selectNode: (id: string | null) => scene?.selectNode(id),
       selectLink: (id: string) => scene?.selectLink(id),
@@ -1873,6 +2056,33 @@
   });
 
   $effect(() => {
+    revision;
+    hud.selectedId;
+    hud.selectedLinkId;
+    hud.operator;
+    panel;
+    shown;
+    linkMode;
+    liveText = liveAnnouncement({
+      doc: session.doc,
+      index: session.index,
+      nodeId: hud.selectedId,
+      linkId: hud.selectedLinkId,
+      panel,
+      openedTitle: openedTitle(),
+      linkMode: linkMode !== null,
+      operator: hud.operator,
+    });
+  });
+
+  $effect(() => {
+    const open = dialog !== null;
+    if (open && !dialogWasOpen) rememberFocus();
+    if (!open && dialogWasOpen) restoreFocus();
+    dialogWasOpen = open;
+  });
+
+  $effect(() => {
     const id = hud.selectedLinkId;
     revision;
     if (!id) return;
@@ -1895,16 +2105,19 @@
       </div>
     </div>
     <TabStrip tabs={strip} {activeId} onActivate={activate} onClose={(id) => void requestClose(id)} />
-    <p class="status" aria-live="polite">
-      <span class="file">{fileStatus}</span>
+    <!-- The status line is a focus stop for F6, so it takes a tab index on purpose. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="status" id="region-status" role="region" aria-label="Status" tabindex="0">
+      <span class="file" aria-live="polite">{fileStatus}</span>
       <span>· {hud.message || hud.status}</span>
+      <span> · {modeHint}</span>
       {#if filterLabel}
         <span>· {filterLabel}</span>
       {/if}
       {#if hud.prepMs != null}
         <span>· labels prepared in {hud.prepMs.toFixed(0)} ms</span>
       {/if}
-    </p>
+    </div>
   </header>
 
   <aside class="tools">
@@ -1939,7 +2152,7 @@
       <div class="row">
         <button type="button" onclick={() => void saveActive()}>Save</button>
         <button type="button" onclick={() => void openDialog()}>Open</button>
-        <button type="button" class:on={prefsOpen} onclick={() => (prefsOpen = !prefsOpen)}>Preferences</button>
+        <button type="button" class:on={prefsOpen} onclick={togglePreferences}>Preferences</button>
       </div>
     </div>
 
@@ -2097,8 +2310,14 @@
     />
   {/if}
 
+  {#if paletteOpen}
+    <Palette commands={PALETTE_COMMANDS} nodes={paletteNodes} onRun={runPalette} onClose={closePalette} />
+  {/if}
+  {#if helpOpen}
+    <HelpSheet sections={shortcutSections} onClose={closeHelp} />
+  {/if}
   {#if prefsOpen}
-    <PreferencesPanel {preferences} onChange={updatePreferences} onClose={() => (prefsOpen = false)} />
+    <PreferencesPanel {preferences} onChange={updatePreferences} onClose={togglePreferences} />
   {/if}
   {#if dialog}
     <FileDialogs
@@ -2138,9 +2357,41 @@
     <span><kbd>[</kbd> <kbd>]</kbd> cycle</span>
     <span><kbd>V</kbd> view</span>
     <span><kbd>F</kbd> focus</span>
+    <span><kbd>/</kbd> commands</span>
+    <span><kbd>?</kbd> help</span>
+    <span><kbd>F6</kbd> regions</span>
   </footer>
 
-  <p class="live" aria-live="polite">{hud.selectedTitle}</p>
+  <nav class="tree-mirror" aria-label="Selection neighbourhood">
+  <div role="tree" aria-label={tree.accessibleName}>
+    {#if tree.empty}
+      <div role="treeitem" aria-selected="false">{tree.summary}</div>
+    {:else}
+      <div role="treeitem" aria-expanded="true" aria-selected={hud.selectedLinkId == null}>
+        <span>{tree.accessibleName}</span>
+        <div role="group">
+          {#each tree.groups as group (group.typeId)}
+            <div role="treeitem" aria-expanded="true" aria-selected="false">
+              <span>{group.typeName}, {group.links.length}</span>
+              <div role="group">
+                {#each group.links as link (link.linkId)}
+                  <div role="treeitem" aria-expanded="true" aria-selected={hud.selectedLinkId === link.linkId}>
+                    <span>{link.phrase}</span>
+                    <div role="group">
+                      <div role="treeitem" aria-selected="false">{link.other.loop ? `${link.other.title}, loop` : link.other.title}</div>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+  </div>
+  </nav>
+
+  <p class="live" aria-live="polite">{liveText}</p>
 </div>
 
 <style>
@@ -2158,6 +2409,11 @@
     width: 100%;
     height: 100%;
     outline: none;
+  }
+
+  :global(.scene-canvas:focus-visible) {
+    outline: 2px solid #e2b657;
+    outline-offset: -3px;
   }
 
   :global(.css2d-layer) {
@@ -2257,9 +2513,14 @@
 
   .status {
     margin: 4px 0 0;
-    max-width: 46vw;
+    max-width: min(46vw, 520px);
     color: #c5d2e0;
     font-size: 14px;
+  }
+
+  .status:focus-visible {
+    outline: 2px solid #e2b657;
+    outline-offset: 3px;
   }
 
   .file {
@@ -2410,12 +2671,17 @@
     background: rgba(8, 12, 18, 0.55);
   }
 
-  .live {
+  .live,
+  .tree-mirror {
     position: absolute;
     width: 1px;
     height: 1px;
+    margin: -1px;
+    padding: 0;
     overflow: hidden;
     clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   :global(html[data-theme="light"]),

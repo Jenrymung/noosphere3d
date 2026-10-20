@@ -19,7 +19,7 @@
 
 <svelte:window onkeydowncapture={onKey} />
 
-<section class="prefs" data-overlay aria-labelledby="prefs-title">
+<div class="prefs" data-overlay role="dialog" aria-modal="true" aria-labelledby="prefs-title">
   <header>
     <p class="kicker">Preferences</p>
     <h2 id="prefs-title">This computer</h2>
@@ -81,6 +81,10 @@
       <input type="checkbox" checked={preferences.dimLonely} onchange={(event) => patch({ dimLonely: (event.currentTarget as HTMLInputElement).checked })} />
       Dim nodes with no visible links
     </label>
+    <label class="check">
+      <input type="checkbox" checked={preferences.showAxisGizmo} onchange={(event) => patch({ showAxisGizmo: (event.currentTarget as HTMLInputElement).checked })} />
+      Show the corner axis gizmo
+    </label>
   </fieldset>
 
   <fieldset>
@@ -95,7 +99,7 @@
     <button type="button" onclick={onClose}>Done</button>
   </div>
   <p class="hint">These settings stay on this computer. Esc closes the window.</p>
-</section>
+</div>
 
 <style>
   .prefs {

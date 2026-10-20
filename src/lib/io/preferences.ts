@@ -18,6 +18,7 @@ export interface Preferences {
   reduceMotion: MotionPreference;
   dimLonely: boolean;
   skipPicker: boolean;
+  showAxisGizmo: boolean;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -33,6 +34,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   reduceMotion: "system",
   dimLonely: false,
   skipPicker: false,
+  showAxisGizmo: true,
 };
 
 const LIMITS = {
@@ -71,5 +73,6 @@ export function normalizePreferences(input: unknown): Preferences {
     reduceMotion,
     dimLonely: raw.dimLonely === true,
     skipPicker: raw.skipPicker === true,
+    showAxisGizmo: raw.showAxisGizmo !== false,
   };
 }

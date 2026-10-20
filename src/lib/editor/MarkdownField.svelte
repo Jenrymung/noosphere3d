@@ -56,6 +56,7 @@
           keymap.of(defaultKeymap),
           markdown(),
           EditorView.lineWrapping,
+          EditorView.contentAttributes.of({ "aria-label": "Markdown body" }),
           placeholderExt(placeholder || "Write the note in Markdown"),
           theme,
           EditorView.updateListener.of((update) => {
