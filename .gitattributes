@@ -1,0 +1,2 @@
+# Canonical map files are LF JSON. Windows Git must not rewrite them on checkout.
+*.mindmap3d text eol=lf

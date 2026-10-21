@@ -2,8 +2,10 @@
 #
 # Runs on GitHub Actions for this repository
 # (https://github.com/Jenrymung/noosphere3d). Origin does not run it.
-# Depot CI, if connected later, rewrites windows-latest and macos-latest
+# Depot CI, if connected later, rewrites windows-latest and macOS labels
 # to a Linux sandbox, so it must not be the host for this matrix.
+# Apple Silicon uses macos-15. Intel uses macos-15-intel so the x64
+# job does not wait on the arm64 runner pool.
 #
 # No signing secrets are set. macOS bundles stay ad-hoc signed via
 # bundle.macOS.signingIdentity "-" in src-tauri/tauri.conf.json.
@@ -38,15 +40,19 @@ jobs:
           - os: ubuntu-22.04
             label: linux-x64
             args: ""
+            targets: ""
           - os: windows-latest
             label: windows-x64
             args: ""
-          - os: macos-latest
+            targets: ""
+          - os: macos-15
             label: macos-aarch64
             args: "--target aarch64-apple-darwin"
-          - os: macos-latest
+            targets: aarch64-apple-darwin
+          - os: macos-15-intel
             label: macos-x64
             args: "--target x86_64-apple-darwin"
+            targets: x86_64-apple-darwin
 
     steps:
       - uses: actions/checkout@v7
@@ -64,7 +70,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.targets }}
 
       - uses: swatinem/rust-cache@v2
         with:
