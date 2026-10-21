@@ -28,7 +28,7 @@
 
 **All build phases (0–7) are complete on Linux.** The MVP features are built and tested (112 tests, axe-core clean on the checked page, keyboard-only walkthrough passed). Linux .deb, .rpm and AppImage packages build locally. Development so far has been Linux-only, by decision.
 
-**Decided:** licence is **MIT** (MIT only); app name is **Noosphere 3D** (`.mindmap3d` extension unchanged); **Apple signing: not paying**, so macOS builds ship **unsigned and not notarized**, with a note telling users how to open them (right-click the app → **Open**, or *System Settings → Privacy & Security → Open Anyway*); the project goes on **GitHub**, where the CI build workflow (Windows/macOS/Linux) and GitHub Releases run.
+**Decided:** licence is **MIT** (MIT only); app name is **Noosphere 3D** (`.mindmap3d` extension unchanged); **Apple signing: not paying**, so macOS builds ship **unsigned and not notarized**, with a note telling users how to open them (*System Settings → Privacy & Security → Open Anyway*; right-click the app → **Open** only works on older macOS versions); the project goes on **GitHub**, where the CI build workflow (Windows/macOS/Linux) and GitHub Releases run.
 
 **No decisions are waiting on the user.**
 
@@ -101,9 +101,9 @@ These have been decided by the creator. All the earlier open questions have now 
 | **Session restore** *(after Phase 5)* | Restoring all open tabs on launch is a **v1** item, not MVP. |
 | **Keyboard and accessibility (as built)** *(Phase 6)* | Palette opens with **/** or **Mod+K**. A **`>`** prefix shows commands only and **`@`** shows nodes only. **?** opens a **help sheet generated from the live keymap**, so it can't drift from the real bindings. The status bar shows **per-mode hints**, and **F6** cycles regions. Screen readers get an **ARIA tree** plus **live-region announcements**. The **axis gizmo** can be hidden in Preferences. **Letter and digit shortcuts are layout-aware** on non-US keyboards, and a **test rejects shortcuts that clash with OS shortcuts**. |
 | **Licence** *(decided)* | **MIT** only (replaces the earlier MIT OR Apache-2.0 draft). Licence files become a single `LICENSE` (MIT). |
-| **macOS signing** *(decided)* | **Not paying** for the Apple Developer Program. macOS builds ship **unsigned and not notarized**; the README and release notes tell users how to open them (right-click the app → **Open**, or *System Settings → Privacy & Security → Open Anyway*). Windows signing via SignPath is unchanged. |
+| **macOS signing** *(decided)* | **Not paying** for the Apple Developer Program. macOS builds ship **unsigned and not notarized**; the README and release notes tell users how to open them (*System Settings → Privacy & Security → Open Anyway*; right-click the app → **Open** only works on older macOS versions). Windows signing via SignPath is unchanged. |
 | **GitHub** *(decided)* | The project goes on **GitHub**. The CI build workflow (`.github/workflows/build.yml`, Windows/macOS/Linux) and **GitHub Releases** run there. |
-| **App name** *(decided)* | **Noosphere 3D**. Used for the repository, bundle identifier, file-association text and installers. The file extension stays **`.mindmap3d`**. |
+| **App name** *(decided)* | **Noosphere 3D**. Used for the repository, bundle identifier, file-association text and installers. Bundle identifier: **`io.github.<owner>.noosphere3d`**, with `<owner>` filled in once the GitHub repo exists (avoid ending in `.app`). The file extension stays **`.mindmap3d`**. |
 | **Manual screen-reader passes** *(Phase 7)* | Not yet done. **Orca (Linux) can be done now**. **NVDA (Windows)** and **VoiceOver (macOS)** happen with the **deferred cross-platform checks**. All three are on the pre-release checklist. |
 
 **What the free-form web decision changes in this plan**
@@ -151,7 +151,7 @@ These have been decided by the creator. All the earlier open questions have now 
 | 3D text | **SDF text (troika-three-text)** for titles above the doc icons; full Markdown only in the **Reader panel** (HTML) when a node is opened | Legible and scalable in 3D; rich and accessible where it matters |
 | Node icons | **Instanced billboarded sprites** from a small icon atlas | One draw call for every node; same silhouette from every angle |
 | Preferences | **Tauri store plugin** (a JSON file in the app's config folder) | Simple, local, per-user |
-| Fuzzy search | **uFuzzy** or **fuzzysort** | Tiny and fast for a command palette and the link-type picker |
+| Fuzzy search | **Small built-in fuzzy ranker** (MVP, as built); **uFuzzy** is a later option if result quality suffers on large maps | Tiny and fast for a command palette and the link-type picker; no dependency |
 | Link rendering | One batched line geometry **per link type**, instanced arrowheads | Cheap filtering (hide/dim a type in one switch) and few draw calls |
 | Validation | **Valibot** or **Zod** | Safe loading of files and clean migrations |
 | Ordering | **fractional-indexing** (order keys) | Collaboration-ready ordering of link types and waypoints |
@@ -506,11 +506,11 @@ Following the hotkey + mouse scheme ([5.7](#57-mouse-hotkey-mouse-movement-opera
 #### Creating a link and choosing its type
 
 1. Press **L** to enter **Link mode**. The current node is the source, and a dashed "rubber band" follows a target cursor.
-2. Move the target with the **arrow keys** (same spatial rules), press **/** to pick a target by name, or **N** to create a new target node.
-3. *Optional shortcut:* press **1–9** while in Link mode to pick a type up front. The rubber band changes to that type's colour and style.
+2. Move the target with the **arrow keys** (same spatial rules), press **/** to pick a target by name, or **N** to create a new target node (placed near the source node).
+3. *Optional shortcut:* press **1–9** while in Link mode to pick a type up front. The rubber band changes to that type's colour and dash pattern.
 4. Press **Enter**, or with the mouse, **hover to aim** (the target highlights) and **click to confirm**. The rule is the same as every operator: click or Enter confirms; **right-click or Esc cancels**.
    - If you already picked a type, the link is created straight away.
-   - Otherwise the **type picker** pops up next to the rubber band. It lists types with number keys, colour swatches and icons, with the last-used type highlighted. Press **1–9** to pick instantly, type to fuzzy-search, **↑/↓** and **Enter** to choose, **Mod+N** to create a new type from what you typed, or **Esc** to go back to Link mode.
+   - Otherwise the **type picker** opens as a **centred panel** (MVP; a panel anchored next to the rubber band is a v1 option). It lists types with number keys, colour swatches and icons, with the last-used type highlighted. Press **1–9** to pick instantly, type to fuzzy-search, **↑/↓** and **Enter** to choose, **Mod+N** to create a new type from what you typed, or **Esc** to go back to Link mode.
 5. The new link is selected. Press **Enter** to write its Markdown text, or **Esc** to carry on.
 
 The app-level preference **"Skip the type picker"** (Preferences → Linking; stored in the preferences store, not in the map) uses the last-used type, so step 4 becomes a single keypress or click.
@@ -615,7 +615,7 @@ Clicking empty space **keeps the current selection** (decided; keyboard-first), 
 | Key | Operator | Moving the mouse… | While active |
 |---|---|---|---|
 | **G** | **Grab** the selected node(s) and selected waypoints | moves them in the plane facing the camera | **X / Y / Z** lock to a world axis (press again to unlock); **wheel** or **PageUp/PageDown** moves in depth; **Shift** = precision (slower); **Ctrl** = snap to grid; **arrows** nudge; *(v1)* type a number for an exact distance, e.g. *G X 2 Enter* |
-| **L** | **Link** from the current node | the rubber band follows the pointer; the node nearest the pointer highlights as the target | hover aims (target highlights), **click** confirms and creates the link; **N** = new node at the pointer; **1–9** pre-pick a type; arrows / **/** still work |
+| **L** | **Link** from the current node | the rubber band follows the pointer; the node nearest the pointer highlights as the target | hover aims (target highlights), **click** confirms and creates the link; **N** = new node near the source node; **1–9** pre-pick a type; arrows / **/** still work |
 | **V** | **View**: orbit around the focus point | orbits | **Shift** pans; **wheel** or **Ctrl+move** zooms |
 | **S** *(v1)* | **Scale** node size | pointer distance from the selection centre scales it | **Shift** = precision; **Ctrl** = 10% steps |
 
@@ -847,7 +847,7 @@ Mode rules:
 | **Click** | Confirm: create the link to the highlighted node (opens the type picker if no type was pre-picked and the picker isn't skipped) |
 | **/** | Pick the target by name |
 | **N** | Create a new node as the target |
-| **1…9** | Pre-pick link type 1–9 (rubber band shows its style) |
+| **1…9** | Pre-pick link type 1–9 (rubber band shows its colour and dash pattern) |
 | **Enter** | Create the link (opens the type picker if no type was pre-picked) |
 | **Esc** / **right-click** | Cancel |
 
@@ -1509,7 +1509,7 @@ Tauri uses each OS's own WebView: **WebView2** (Chromium-based) on Windows, **WK
 | Editor | **CodeMirror 6** | Excellent keyboard model, accessible, modular and small, good Markdown mode, easy custom keymaps | Monaco (heavy, IDE-oriented), ProseMirror/Tiptap (WYSIWYG; less transparent for "Markdown as source") |
 | Undo | **Immer** (patches) | Exact inverse patches; structural sharing | Hand-written inverse commands; snapshots |
 | Validation | **Valibot** or **Zod** | Runtime validation + TS types from one definition | Ajv + JSON Schema |
-| Fuzzy search | **uFuzzy** or **fuzzysort** | Small, fast, good ranking for palettes | Fuse.js (slower on large lists) |
+| Fuzzy search | **Small built-in fuzzy ranker** (MVP, as built); **uFuzzy** later if result quality suffers on large maps | Small, fast, no dependency; good enough ranking for palettes at MVP scale | Fuse.js (slower on large lists) |
 | Layout (v1) | **d3-force-3d** in a Web Worker | Proven force-directed simulation in 3D; fits a free-form web with loops; per-link spring strength/length maps neatly onto link types | ngraph.forcelayout |
 | Ids | **ULID** or **UUIDv7** | Unique, sortable, collision-safe | nanoid |
 | Testing | **Vitest**, **fast-check**, **Playwright**, **WebdriverIO + tauri-driver**, Rust `cargo test` | See [Section 13](#13-testing-strategy) | Jest |
@@ -1527,7 +1527,7 @@ Tauri uses each OS's own WebView: **WebView2** (Chromium-based) on Windows, **WK
 | **GPL-3.0-or-later** | Anyone distributing modified versions must publish their source under the GPL | Pick this if it matters that forks stay open source. Still compatible with MIT/Apache-2.0 dependencies |
 | **MPL-2.0** | Copyleft per file: changed files must stay open, but it can be combined with other code | A middle ground |
 
-Practical points: add a single `LICENSE` file (MIT); ship third-party licence notices in the app's About box (generated in CI); use a **DCO sign-off** for contributions rather than a CLA; publish the `.mindmap3d` JSON schema under the same licence (or CC0), so anyone can build compatible tools.
+Practical points: add a single `LICENSE` file (MIT); ship third-party licence notices in the app's About box (a fixed list in the MVP; generated in CI before release); use a **DCO sign-off** for contributions rather than a CLA; publish the `.mindmap3d` JSON schema under the same licence (or CC0), so anyone can build compatible tools.
 
 **Distribution: GitHub Releases.**
 
@@ -1632,7 +1632,7 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 
 ### Phase 7 — MVP hardening and release (M) — *build-side work done; release waits for the user*
 
-**Done (build side):** About dialog with third-party notices; *Help → Check for updates…* opens a **placeholder** Releases URL (to be replaced once the GitHub repo exists); `docs/mindmap3d.schema.json` published; CONTRIBUTING with DCO; local error log; `docs/pre-release-checklist.md`; licence decided (MIT); Linux .deb/.rpm/AppImage built locally; **fonts bundled locally** (no web font loading). Performance measured on a CPU-only machine (see [9.1](#91-suggested-targets)).
+**Done (build side):** About dialog with third-party notices (fixed list); *Help → Check for updates…* opens a **placeholder** Releases URL (to be replaced once the GitHub repo exists); `docs/mindmap3d.schema.json` published; CONTRIBUTING with DCO; local error log; `docs/pre-release-checklist.md`; licence decided (MIT); Linux .deb/.rpm/AppImage built locally; **fonts bundled locally** (no web font loading). Performance measured on a CPU-only machine (see [9.1](#91-suggested-targets)).
 
 **Decided:** licence **MIT**; app name **Noosphere 3D**; macOS builds **unsigned, not notarized** (no Apple membership); project hosted on **GitHub** (CI + Releases). **Next steps:** create the GitHub repo and push, enable `.github/workflows/build.yml`, replace the placeholder Releases URL. See [MVP status](#mvp-status).
 
@@ -1656,6 +1656,8 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 - [ ] Performance targets met ([Section 9](#9-performance)). Load/index and navigation timings are already well within the targets.
 - [x] Licence decided: **MIT** (switch the drafted files to a single MIT `LICENSE`).
 - [x] Final app name chosen: **Noosphere 3D** (apply to repository, bundle id, installers; `.mindmap3d` unchanged).
+- [ ] Bundle identifier set to `io.github.<owner>.noosphere3d` with the real GitHub owner (not ending in `.app`).
+- [ ] Third-party notices generated in CI (replacing the MVP's fixed list in About).
 - [ ] Check-for-updates placeholder URL replaced with the real Releases page.
 - [x] Signing decisions made: Windows via SignPath (if accepted); macOS **unsigned, not notarized** (see [10.1](#101-licence-distribution-and-updates)).
 - [ ] SignPath set up for Windows (or unsigned with instructions), and the macOS "how to open an unsigned app" note added to the README and release notes.

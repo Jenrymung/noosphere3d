@@ -3,6 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import type { RubberStroke } from "./rubber";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
@@ -126,7 +127,7 @@ export interface MindMapScene {
   getPose(): { position: Vec3; target: Vec3 };
   getSelection(): { nodeId: string | null; linkId: string | null; linkOriginId: string | null };
   setLinkMode(on: boolean): void;
-  setLinkCursor(cursor: { sourceId: string; targetId: string | null; color: string } | null): void;
+  setLinkCursor(cursor: { sourceId: string; targetId: string | null; stroke: RubberStroke } | null): void;
   spatialFrom(fromId: string, direction: ArrowDirection): string | null;
   setDimLonely(on: boolean): void;
   setStatus(text: string): void;
@@ -265,7 +266,7 @@ export function createMindMapScene(
   let grab: GrabOperator | null = null;
   let grabId: string | null = null;
   let linkMode = false;
-  let linkCursor: { sourceId: string; targetId: string | null; color: string } | null = null;
+  let linkCursor: { sourceId: string; targetId: string | null; stroke: RubberStroke } | null = null;
   let linkSpatial: { fromId: string; direction: ArrowDirection } | null = null;
   let rubber: Line2 | null = null;
   let dimLonely = false;
@@ -1940,7 +1941,7 @@ export function createMindMapScene(
     requestRender();
   }
 
-  function setLinkCursor(cursor: { sourceId: string; targetId: string | null; color: string } | null) {
+  function setLinkCursor(cursor: { sourceId: string; targetId: string | null; stroke: RubberStroke } | null) {
     linkCursor = cursor;
     if (!cursor) linkSpatial = null;
     refreshRubber(true);
@@ -1967,15 +1968,16 @@ export function createMindMapScene(
       start.addScaledVector(delta, 0.45);
       end.addScaledVector(delta, -0.45);
     }
+    const stroke = linkCursor.stroke;
     if (!rubber) {
       const geometry = new LineGeometry();
       geometry.setPositions([start.x, start.y, start.z, end.x, end.y, end.z]);
       const material = new LineMaterial({
-        color: linkCursor.color,
-        linewidth: 3,
-        dashed: true,
-        dashSize: 0.22,
-        gapSize: 0.16,
+        color: stroke.color,
+        linewidth: stroke.linewidth,
+        dashed: stroke.dashed,
+        dashSize: stroke.dashSize,
+        gapSize: stroke.gapSize,
         transparent: true,
         opacity: 0.95,
       });
@@ -1991,7 +1993,12 @@ export function createMindMapScene(
       geometry.setPositions([start.x, start.y, start.z, end.x, end.y, end.z]);
       rubber.geometry = geometry;
       rubber.computeLineDistances();
-      (rubber.material as LineMaterial).color.set(linkCursor.color);
+      const material = rubber.material as LineMaterial;
+      material.color.set(stroke.color);
+      material.linewidth = stroke.linewidth;
+      material.dashSize = stroke.dashSize;
+      material.gapSize = stroke.gapSize;
+      material.dashed = stroke.dashed;
       rubber.visible = true;
     }
     if (request) requestRender();

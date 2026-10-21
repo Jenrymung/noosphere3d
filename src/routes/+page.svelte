@@ -48,6 +48,7 @@
   } from "$lib/scene/createScene";
   import { stressMap } from "$lib/scene/dummyMap";
   import { placeNode } from "$lib/scene/placement";
+  import { rubberStroke } from "$lib/scene/rubber";
   import AboutPanel from "$lib/ui/AboutPanel.svelte";
   import FileDialogs, { type AppDialog } from "$lib/ui/FileDialogs.svelte";
   import HelpSheet from "$lib/ui/HelpSheet.svelte";
@@ -775,7 +776,7 @@
     scene.setLinkCursor({
       sourceId: linkMode.sourceId,
       targetId: linkMode.targetId,
-      color: type?.color ?? "#9bb0c4",
+      stroke: rubberStroke(type),
     });
     const target = linkMode.targetId ? session.doc.nodes[linkMode.targetId] : undefined;
     const targetTitle = target ? nodeTitle(target) || "Untitled" : "choose a target";
