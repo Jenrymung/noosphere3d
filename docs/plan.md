@@ -26,17 +26,19 @@
 
 ## MVP status
 
-**All build phases (0–7) are complete on Linux.** The MVP features are built and tested (112 tests, axe-core clean on the checked page, keyboard-only walkthrough passed). Linux .deb, .rpm and AppImage packages build locally. Development so far has been Linux-only, by decision.
+**All build phases (0–7) are complete on Linux.** The MVP features are built and tested (112 tests, axe-core clean on the checked page, keyboard-only walkthrough passed). Linux .deb, .rpm and AppImage packages build locally. The repo is public on GitHub at [github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d) (full history on `main`), and CI passes on **Linux, Windows, macOS arm64 and macOS x64** (macOS jobs on `macos-15` and `macos-15-intel`). Artifacts are named `noosphere3d-*`. **No release has been published yet.**
 
-**Decided:** licence is **MIT** (MIT only); app name is **Noosphere 3D** (`.mindmap3d` extension unchanged); **Apple signing: not paying**, so macOS builds ship **unsigned and not notarized**, with a note telling users how to open them (*System Settings → Privacy & Security → Open Anyway*; right-click the app → **Open** only works on older macOS versions); the project goes on **GitHub**, where the CI build workflow (Windows/macOS/Linux) and GitHub Releases run.
+**Decided:** licence is **MIT** (MIT only); app name is **Noosphere 3D** (`.mindmap3d` extension unchanged); **Apple signing: not paying**, so macOS builds ship **unsigned and not notarized**, with a note telling users how to open them (*System Settings → Privacy & Security → Open Anyway*; right-click the app → **Open** only works on older macOS versions); the project is on **GitHub** ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d)), where the CI build workflow (Windows/macOS/Linux) and GitHub Releases run.
 
 **No decisions are waiting on the user.**
 
-**GitHub:** the repository is [Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d). `.github/workflows/build.yml` runs on push to `main` and uploads unsigned installers as artifacts. It does not publish a GitHub Release. *Help → Check for updates…* opens `https://github.com/Jenrymung/noosphere3d/releases`.
+**GitHub setup (done):** repo created and pushed; `.github/workflows/build.yml` green on all platforms; bundle ID **`io.github.jenrymung.noosphere3d`**; *Help → Check for updates…* points at the repo's Releases page; a `.gitattributes` rule keeps `.mindmap3d` files LF.
+
+**Next steps:** real-hardware Windows/macOS checks (screen readers, OS shortcut conflicts); GPU frame-rate and label checks; Orca/WebKitGTK; CI-generated third-party notices; SignPath setup; publish the first release.
 
 **Manual checks still to do:**
 
-- **Windows and macOS runs** (once the repo is on GitHub and the workflow runs): smoke tests, WebView2/WKWebView differences, OS shortcut clashes, file association.
+- **Windows and macOS runs on real hardware** (CI builds pass; hands-on checks still to do): smoke tests, WebView2/WKWebView differences, OS shortcut clashes, file association.
 - **Real-GPU checks:** frame rates (unmeasured so far; the machine had no GPU) and the SDF vs CSS2D label check.
 - **Screen readers:** NVDA (Windows), VoiceOver (macOS) and Orca (Linux). Orca currently can't read the app (see the WebKitGTK accessibility risk in [12.1](#121-risks)).
 
@@ -83,7 +85,7 @@ These have been decided by the creator. All the earlier open questions have now 
 | **Spatial navigation scoring** *(after Phase 0/1)* | Arrow keys use **one scoring function with tunable weights**: angle away from the arrow direction on screen, screen distance, a **stronger depth / 3D-distance penalty** (so jumps stay in the local cluster), and a **bonus for nodes directly linked** to the current one. The cone limit stays. Weights live in **one config** and are covered by **fixture-layout tests**. See [6.3](#63-spatial-navigation-rules). |
 | **Label technique** *(after Phase 0)* | **troika SDF titles are the default.** In the Phase 0 test, CSS2D was sharper close up but became a wall of cards at ~2,300 titles. A **dev/preferences toggle for CSS2D** stays until both are tested on real GPU hardware. In the MVP a **text outline** provides contrast; the rounded plate behind titles moves to **v1** as an appearance option. |
 | **Repairing missing link types** *(after Phase 0/1)* | If a file has **no link types**, restore **only "relates to"**; never inject the full starter set into an existing map. Links pointing at **missing `typeId`s are reassigned to "relates to"**. **New maps** get the starter set (or, from v1, the user's template). |
-| **Cross-platform builds deferred** *(during Phase 2)* | Windows and macOS builds and checks are **deferred for now**; development continues on **Linux only**. The repo lives on **Cursor Origin**, which doesn't run workflow files itself, and there is **no GitHub mirror yet**. `.github/workflows/build.yml` is **already on `main`**, ready for later. The build matrix must run **before the Phase 7 release at the latest**, ideally through a **GitHub mirror** (GitHub Actions gives public repos free Windows and macOS runners). See [Section 11](#11-roadmap-and-milestones) and [12.1](#121-risks). |
+| **Cross-platform builds** *(deferred during Phase 2; now running)* | Windows and macOS builds were **deferred** while development was Linux-only. The repo is now on **GitHub** ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d)) and `.github/workflows/build.yml` runs on GitHub Actions: CI passes on **Linux, Windows, macOS arm64 and macOS x64** (macOS jobs on `macos-15` and `macos-15-intel`). Hands-on checks on real Windows and Mac hardware are still to do. See [Section 11](#11-roadmap-and-milestones) and [12.1](#121-risks). |
 | **Esc behaviour** *(after Phase 2)* | Esc steps back one level along a fixed chain: **Edit → Reader → selection → nothing selected**. Esc on a **selected link** returns to the **node you arrived from** (from navigation history), not an arbitrary end. If there's no such node (e.g. the link was clicked directly), it clears the selection. Esc on a **selected node** clears the selection. See [6.1](#61-modes) and [6.2](#62-shortcut-map). |
 | **Clicking empty space** *(after Phase 2)* | **Keeps the current selection** (keyboard-first: a stray click never loses your place). Esc clears it. |
 | **Orientation gizmo** *(after Phase 2)* | The corner **axis gizmo is deferred to Phase 6**. Until then, depth cues come from the **ground grid and fog** (plus slightly smaller, dimmer far nodes). |
@@ -102,9 +104,9 @@ These have been decided by the creator. All the earlier open questions have now 
 | **Keyboard and accessibility (as built)** *(Phase 6)* | Palette opens with **/** or **Mod+K**. A **`>`** prefix shows commands only and **`@`** shows nodes only. **?** opens a **help sheet generated from the live keymap**, so it can't drift from the real bindings. The status bar shows **per-mode hints**, and **F6** cycles regions. Screen readers get an **ARIA tree** plus **live-region announcements**. The **axis gizmo** can be hidden in Preferences. **Letter and digit shortcuts are layout-aware** on non-US keyboards, and a **test rejects shortcuts that clash with OS shortcuts**. |
 | **Licence** *(decided)* | **MIT** only (replaces the earlier MIT OR Apache-2.0 draft). Licence files become a single `LICENSE` (MIT). |
 | **macOS signing** *(decided)* | **Not paying** for the Apple Developer Program. macOS builds ship **unsigned and not notarized**; the README and release notes tell users how to open them (*System Settings → Privacy & Security → Open Anyway*; right-click the app → **Open** only works on older macOS versions). Windows signing via SignPath is unchanged. |
-| **GitHub** *(decided)* | The project goes on **GitHub**. The CI build workflow (`.github/workflows/build.yml`, Windows/macOS/Linux) and **GitHub Releases** run there. |
-| **App name** *(decided)* | **Noosphere 3D**. Used for the repository, bundle identifier, file-association text and installers. Bundle identifier: **`io.github.jenrymung.noosphere3d`** (it does not end in `.app`). The file extension stays **`.mindmap3d`**. |
-| **Manual screen-reader passes** *(Phase 7)* | Not yet done. **Orca (Linux) can be done now**. **NVDA (Windows)** and **VoiceOver (macOS)** happen with the **deferred cross-platform checks**. All three are on the pre-release checklist. |
+| **GitHub** *(decided, done)* | The project is on **GitHub** at [github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d) (public). The CI build workflow (`.github/workflows/build.yml`, Windows/macOS/Linux) and **GitHub Releases** run there. |
+| **App name** *(decided)* | **Noosphere 3D**. Used for the repository, bundle identifier, file-association text and installers. Bundle identifier: **`io.github.jenrymung.noosphere3d`** (set; avoids ending in `.app`). The file extension stays **`.mindmap3d`**. |
+| **Manual screen-reader passes** *(Phase 7)* | Not yet done. **Orca (Linux) can be done now**. **NVDA (Windows)** and **VoiceOver (macOS)** happen with the **real-hardware Windows/macOS checks**. All three are on the pre-release checklist. |
 
 **What the free-form web decision changes in this plan**
 
@@ -137,7 +139,7 @@ These have been decided by the creator. All the earlier open questions have now 
 - Section 6.3 now describes **one weighted scoring function** instead of a cone score plus a separate depth check.
 - SDF titles with an **outline** are the MVP look; title plates become a v1 option; CSS2D stays behind a toggle.
 - Repair rules for link types are narrower (see [7.4](#74-integrity-rules-checked-on-load-and-after-every-command)).
-- Cross-platform (Windows/macOS) builds are **deferred**: development is Linux-only for now, and the build matrix must run before the Phase 7 release at the latest (see [12.1](#121-risks) and [Section 11](#11-roadmap-and-milestones)).
+- Cross-platform (Windows/macOS) builds were **deferred** during development and **now pass in GitHub Actions CI**; real-hardware checks remain (see [12.1](#121-risks) and [Section 11](#11-roadmap-and-milestones)).
 
 **Recommendations made in this plan** (explained in [Section 10](#10-tech-stack))
 
@@ -994,7 +996,7 @@ A WebGL canvas is invisible to screen readers, so accessibility has to be design
 | Remapping | User-editable keymap (v1). |
 | Non-3D fallback | The neighbourhood view lets someone use the whole app as a structured list if 3D isn't helpful to them. |
 
-Testing: an automated axe-core check of the HTML UI (**clean on the checked page** in Phase 6), plus manual passes with NVDA (Windows), VoiceOver (macOS) and Orca (Linux). **The manual passes haven't been done yet.** Orca can be done now on Linux. NVDA and VoiceOver come with the deferred cross-platform checks, and all three are on the pre-release checklist.
+Testing: an automated axe-core check of the HTML UI (**clean on the checked page** in Phase 6), plus manual passes with NVDA (Windows), VoiceOver (macOS) and Orca (Linux). **The manual passes haven't been done yet.** Orca can be done now on Linux. NVDA and VoiceOver come with the real-hardware Windows/macOS checks, and all three are on the pre-release checklist.
 
 ---
 
@@ -1577,7 +1579,7 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 
 ### Phase 2 — Scene and navigation (L) — *done*
 
-- Development and testing on **Linux only** for now (cross-platform builds deferred; see below).
+- Development and testing on **Linux only** at this stage (cross-platform builds deferred then; now running in CI, see below).
 - Apply the Phase 0/1 decisions: **MAJOR.MINOR version checks** (refuse newer major, round-trip newer minor), narrowed **link-type repair**, **weighted spatial-navigation scoring** with its config and fixture tests, SDF titles with outline plus the CSS2D toggle.
 
 - Instanced doc-icon sprites with SDF titles above them, batched curved links (per type: colour, pattern, width), arrowheads, pair fanning, SDF titles, link labels, selection highlight.
@@ -1623,31 +1625,31 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 - **Exit:** the full MVP is usable with no mouse and with a screen reader at a basic level.
 - **Outcome:** **112 tests** passing; **axe-core clean** on the checked page; **keyboard-only walkthrough passed**. Built as recorded in Decisions (palette prefixes, live-keymap help sheet, per-mode hints, F6, ARIA tree + live region, hideable gizmo, layout-aware shortcuts, OS-clash test). Manual screen-reader passes are still open (see the pre-release checklist).
 
-### Deferred: cross-platform build matrix (S) — *before Phase 7 at the latest*
+### Cross-platform build matrix (S) — *done in CI*
 
-- **Status:** `.github/workflows/build.yml` runs on GitHub Actions for [Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d) on every push to `main` and when started by hand. It runs the tests and builds unsigned Windows, macOS, and Linux installers, then uploads them as artifacts. It does not publish a GitHub Release. Origin does not run this file.
-- **Still required:** a green run of that matrix, then hand checks on real Windows and Mac machines.
+- **Status:** running. The repo is public on GitHub ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d)) and `.github/workflows/build.yml` runs on GitHub Actions: CI passes on **Linux, Windows, macOS arm64 and macOS x64** (macOS jobs on `macos-15` and `macos-15-intel`). It builds and runs unit tests for every push.
 - **Then check by hand on real Windows and Mac machines:** WebView2/WKWebView differences, OS shortcut clashes, file association for `.mindmap3d`, and SDF vs CSS2D labels on real GPUs (which decides the CSS2D toggle).
-- **Hard deadline:** this must be done, and any fixes landed, **before the Phase 7 release work**. Doing it earlier (any time a mirror is convenient) reduces the risk of late surprises.
+- **Hard deadline:** the hands-on checks, and any fixes, must land **before the first release is published**.
 
-### Phase 7 — MVP hardening and release (M) — *build-side work done; release waits for the user*
+### Phase 7 — MVP hardening and release (M) — *build-side work and GitHub setup done; no release published yet*
 
-**Done (build side):** About dialog with third-party notices (fixed list); *Help → Check for updates…* opens `https://github.com/Jenrymung/noosphere3d/releases`; `docs/mindmap3d.schema.json` published; CONTRIBUTING with DCO; local error log; `docs/pre-release-checklist.md`; licence decided (MIT); Linux .deb/.rpm/AppImage built locally; **fonts bundled locally** (no web font loading). Performance measured on a CPU-only machine (see [9.1](#91-suggested-targets)).
+**Done (build side):** About dialog with third-party notices (fixed list); *Help → Check for updates…* opens the repo's **Releases page** (https://github.com/Jenrymung/noosphere3d/releases); `docs/mindmap3d.schema.json` published; CONTRIBUTING with DCO; local error log; `docs/pre-release-checklist.md`; licence decided (MIT); Linux .deb/.rpm/AppImage built locally; **fonts bundled locally** (no web font loading). Performance measured on a CPU-only machine (see [9.1](#91-suggested-targets)).
 
-**Decided:** licence **MIT**; app name **Noosphere 3D**; macOS builds **unsigned, not notarized** (no Apple membership); project hosted at [Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d). The build workflow uploads artifacts and does not publish a GitHub Release yet. See [MVP status](#mvp-status).
+**Decided:** licence **MIT**; app name **Noosphere 3D**; macOS builds **unsigned, not notarized** (no Apple membership); project hosted on **GitHub** ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d); CI green on all platforms; bundle ID `io.github.jenrymung.noosphere3d`; artifacts `noosphere3d-*`). **Next steps:** real-hardware Windows/macOS checks, GPU frame-rate and label checks, Orca/WebKitGTK, CI-generated third-party notices, SignPath setup, then publish the first release. See [MVP status](#mvp-status).
 
 - Performance pass against the targets in [Section 9](#9-performance).
-- **Release pipeline** (requires the deferred cross-platform build matrix to be running and green first): `tauri-action` building signed/unsigned installers for all three platforms; GitHub Releases with notes, SHA-256 checksums and artifact attestations; Linux AppImage/deb/rpm.
+- **Release pipeline** (the cross-platform build matrix is now running and green): `tauri-action` building signed/unsigned installers for all three platforms; GitHub Releases with notes, SHA-256 checksums and artifact attestations; Linux AppImage/deb/rpm.
 - **Signing** per [10.1](#101-licence-distribution-and-updates): Windows via SignPath (if accepted) or unsigned with instructions; macOS **unsigned and not notarized** (decided), with instructions on how to open it.
 - **Open-source housekeeping:** licence file (**MIT, decided**), third-party notices in About, CONTRIBUTING with DCO, published JSON schema.
-- *Help → Check for updates…* opens `https://github.com/Jenrymung/noosphere3d/releases` in the browser (no in-app network use).
+- *Help → Check for updates…* opens the Releases page in the browser (no in-app network use). Points at https://github.com/Jenrymung/noosphere3d/releases (no release published yet).
 - Error logging to a **local** log file only (local-only decision); users can choose to attach it to a bug report themselves.
 - **Exit:** MVP release.
 
 **Pre-release checklist**
 
-- [ ] Deferred cross-platform build matrix running and green (Windows, macOS, Linux); manual smoke tests on real Windows and Mac machines.
-- [ ] **Manual screen-reader passes:** **Orca (Linux)** can be done now; **NVDA (Windows)** and **VoiceOver (macOS)** with the deferred cross-platform checks.
+- [x] Cross-platform build matrix running and green (Linux, Windows, macOS arm64, macOS x64).
+- [ ] Manual smoke tests on real Windows and Mac machines (including OS shortcut conflicts).
+- [ ] **Manual screen-reader passes:** **Orca (Linux)** can be done now; **NVDA (Windows)** and **VoiceOver (macOS)** with the real-hardware Windows/macOS checks.
 - [ ] **Orca / WebKitGTK accessibility investigated and fixed:** under a normal launch the WebKitGTK sandbox stops Orca seeing the window; with the sandbox disabled, nothing is announced yet (see Risks).
 - [ ] **Real-GPU frame rates** measured against the targets (unmeasured so far; CPU-only machine).
 - [ ] SDF vs CSS2D labels checked on real GPUs; decide on the CSS2D toggle.
@@ -1658,12 +1660,13 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 - [x] Final app name chosen: **Noosphere 3D** (apply to repository, bundle id, installers; `.mindmap3d` unchanged).
 - [x] Bundle identifier set to `io.github.jenrymung.noosphere3d` (not ending in `.app`).
 - [ ] Third-party notices generated in CI (replacing the MVP's fixed list in About).
-- [x] Check-for-updates URL set to `https://github.com/Jenrymung/noosphere3d/releases`.
+- [x] Check-for-updates placeholder URL replaced with the real Releases page (https://github.com/Jenrymung/noosphere3d/releases).
 - [x] Signing decisions made: Windows via SignPath (if accepted); macOS **unsigned, not notarized** (see [10.1](#101-licence-distribution-and-updates)).
 - [ ] SignPath set up for Windows (or unsigned with instructions), and the macOS "how to open an unsigned app" note added to the README and release notes.
 - [x] Hosting decided: **GitHub** (CI builds + GitHub Releases).
-- [x] GitHub repo created and code pushed: https://github.com/Jenrymung/noosphere3d.
-- [ ] `.github/workflows/build.yml` enabled and green on Windows, macOS and Linux.
+- [x] GitHub repo created and code pushed ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d), public, full history on `main`; `.gitattributes` keeps `.mindmap3d` LF).
+- [x] `.github/workflows/build.yml` enabled and green on Windows, macOS and Linux.
+- [ ] First release published on GitHub Releases (artifacts `noosphere3d-*`).
 - [ ] Network check: no non-localhost requests in a release build.
 
 ### v1 phases (after MVP)
@@ -1694,10 +1697,10 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 | **Text hard to read in 3D** | High: core experience | Medium | Only short SDF titles in 3D, clamped size, outlines (plates optional in v1), LOD; full text always in the Reader; Phase 0 confirmed SDF over CSS2D at scale |
 | **Users get lost in 3D** | High | Medium | Orbit-around-selection camera, no roll, frame-all, auto-follow, neighbourhood view, focus mode, camera bookmarks |
 | **Spatial arrow navigation feels random** | High for keyboard-first | Medium | One weighted scoring function (angle, screen distance, strong depth penalty, link bonus) with tunable config and fixture tests, cone limit, "go back" memory, graph-based and type-based navigation (follow, back) as a reliable fallback; user testing early |
-| **WebView differences** (esp. WebKitGTK on Linux) | Medium | Medium–High | Linux only for now; all three OSes once the deferred build matrix runs (before Phase 7); WebGL 2 only; avoid cutting-edge web APIs |
-| **Windows and macOS unverified, deliberately deferred** (development is Linux-only; no GitHub mirror yet, and Cursor Origin doesn't run workflows) | High | Medium–High (grows the longer it waits) | Until the matrix runs, these stay **untested**: **WebView2 (Windows) / WKWebView (macOS) differences**, **OS shortcut clashes**, **`.mindmap3d` file association**, and **SDF labels on real GPUs**. Run the ready `.github/workflows/build.yml` via a **GitHub mirror** (free Windows/macOS runners for public repos) **before the Phase 7 release at the latest**, then smoke-test by hand on a real Windows PC and Mac. Meanwhile, avoid Linux-only assumptions (paths, shortcuts, WebKitGTK quirks) |
+| **WebView differences** (esp. WebKitGTK on Linux) | Medium | Medium–High | Linux only for now; all three OSes now built in CI, real-hardware checks pending; WebGL 2 only; avoid cutting-edge web APIs |
+| **Windows and macOS not yet checked on real hardware** (CI builds and unit tests pass on all platforms) | High | Medium | Until hands-on checks are done, these stay **untested**: **WebView2 (Windows) / WKWebView (macOS) differences**, **OS shortcut clashes**, **`.mindmap3d` file association**, and **SDF labels on real GPUs**. CI already runs `.github/workflows/build.yml` on GitHub Actions; **before the first release**, smoke-test by hand on a real Windows PC and Mac. Meanwhile, avoid Linux-only assumptions (paths, shortcuts, WebKitGTK quirks) |
 | **SDF label decision based on limited hardware** | Medium | Medium | CSS2D toggle kept until tested on real GPUs (integrated and discrete, all three OSes) |
-| **Keyboard conflicts** (OS shortcuts, non-US layouts, IME) | Medium | High | Mod-key abstraction, alternatives for symbol keys, layout-aware letter/digit shortcuts and an automated OS-clash test (both built), remappable keymap (v1), per-OS testing (deferred) |
+| **Keyboard conflicts** (OS shortcuts, non-US layouts, IME) | Medium | High | Mod-key abstraction, alternatives for symbol keys, layout-aware letter/digit shortcuts and an automated OS-clash test (both built), remappable keymap (v1), per-OS testing on real hardware (pending) |
 | **DOM label performance** | Medium | Medium (if CSS2D) | SDF labels, label cap, culling |
 | **Data loss** | High | Low with mitigations | Atomic writes, backups, recovery file in both save modes, never overwrite newer-version or externally changed files |
 | **Forgetting to save in manual mode** | Medium | Medium | Clear text indicator, close/quit prompt, recovery file, crash-recovery prompt |
@@ -1708,7 +1711,7 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 | **Unsafe Markdown (script injection)** | High | Low with mitigations | markdown-it with raw HTML off, DOMPurify, strict CSP, Tauri capabilities, external links open in browser |
 | **3D canvas inaccessible to screen readers** | Medium–High | Certain without work | ARIA tree mirror, live region (built in Phase 6), neighbourhood view |
 | **Orca can't read the app on Linux** (WebKitGTK sandbox) | High for blind users on Linux | Confirmed | Under a normal launch, **Orca can't see the Tauri window**, because the WebKitGTK sandbox blocks the accessibility bus. With the sandbox disabled, the window **appears in the accessibility tree but nothing is announced yet**. **Investigate before release:** WebKitGTK and at-spi configuration (e.g. letting the sandbox reach the accessibility bus), newer WebKitGTK versions, and whether the ARIA tree/live region reach at-spi. Don't ship with the sandbox disabled as a workaround without weighing the security cost. On the pre-release checklist |
-| **Manual screen-reader passes not yet done** (only automated axe-core so far) | Medium–High | Medium | **Orca on Linux now**; **NVDA (Windows)** and **VoiceOver (macOS)** with the deferred cross-platform checks; all three on the pre-release checklist and required before release |
+| **Manual screen-reader passes not yet done** (only automated axe-core so far) | Medium–High | Medium | **Orca on Linux now**; **NVDA (Windows)** and **VoiceOver (macOS)** with the real-hardware Windows/macOS checks; all three on the pre-release checklist and required before release |
 | **Unsigned builds scare users** (SmartScreen, Gatekeeper) | Medium | High (unless signed) | SignPath for Windows if accepted; macOS unsigned (decided), so document right-click → Open / "Open Anyway" clearly; checksums and attestations; say in release notes which builds are signed |
 | **Mouse operators unfamiliar** to people who don't use Blender | Medium | Medium | Status-bar hints and an on-screen operator HUD; identical keyboard paths; cancel always restores exactly; short first-run tips; help sheet section |
 | **Tabs multiply memory and GPU use** | Medium | Medium | One shared renderer; only the active tab renders; release inactive tabs' GPU resources; documents are small compared with GPU buffers |
@@ -1759,7 +1762,7 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 | **Visual regression** | Screenshots of the scene with a fixed camera and sample map, including every starter link type, arrowheads, parallel links and dimmed/hidden types, to catch rendering breakage | Playwright screenshots |
 | **Performance** | Generated maps of 1k / 5k / 10k nodes: frame time while orbiting, time to load/save, memory; tracked over time | Custom benchmark script + browser performance tools |
 | **Accessibility** | Automated checks of the HTML UI; manual screen-reader passes; "unplug the mouse" full-workflow test before every release | axe-core; NVDA, VoiceOver, Orca |
-| **Cross-platform** | CI builds and tests on Windows, macOS and Linux for every change. **Deferred:** Linux-only until the GitHub mirror runs `.github/workflows/build.yml`, before Phase 7 at the latest | GitHub Actions (via mirror) |
+| **Cross-platform** | CI builds and tests on Windows, macOS and Linux for every change. **Running:** green on Linux, Windows, macOS arm64 and macOS x64 | GitHub Actions |
 | **Usability** | Early sessions where a few people try keyboard navigation, editing and typed linking (Phase 0, after Phase 3, after Phase 4). Check that people can tell the starter types apart and find the picker and legend without help. | Watching + notes |
 
 **Definition of done for MVP:** all MVP features work by keyboard alone on all three OSes; undo/redo and save/load round-trip property tests pass; no data lost in kill-the-app tests; performance targets for 1,000 nodes met; basic screen-reader flow works.
@@ -1777,4 +1780,4 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 - Store maps as **versioned, git-friendly JSON**, **locally only**. **Manual save is the default**, with optional autosave-to-file in Preferences, and atomic writes, backups and a crash-recovery file in both modes.
 - Design **accessibility in from the start** (ARIA mirror, neighbourhood view, reduced motion, keyboard paths for every mouse operator, remappable keys).
 - **Latest decisions:** `.mindmap3d` files with an id-keyed, order-keyed, **collaboration-ready format**; **tabs** with per-tab undo and save state; **Blender-style mouse operators** (G grab, L link, V view; S scale in v1); **link labels** showing title plus type name; **waypoints move with the selection**; images in a **resources folder** (v1); self-links allowed (creating them comes later); Vim keys later; open source under **MIT** (decided), named **Noosphere 3D**, hosted on **GitHub** and shipped on **GitHub Releases** (macOS builds unsigned and not notarized), with **no in-app network use in MVP** and an **opt-in update check** in v1.
-- All open questions are answered; none remain ([12.2](#122-open-questions-for-the-creator)). The repository is https://github.com/Jenrymung/noosphere3d, the bundle identifier is `io.github.jenrymung.noosphere3d`, and Check for updates opens https://github.com/Jenrymung/noosphere3d/releases. The build workflow uploads unsigned artifacts and does not publish a GitHub Release yet.
+- All open questions are answered; none remain ([12.2](#122-open-questions-for-the-creator)). GitHub setup is done ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d), CI green on all platforms). Next: real-hardware Windows/macOS checks, GPU checks, Orca/WebKitGTK, CI-generated notices, SignPath setup, and the first release.

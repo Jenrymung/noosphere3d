@@ -11,9 +11,12 @@
 # bundle.macOS.signingIdentity "-" in src-tauri/tauri.conf.json.
 # There is no Apple signing identity.
 #
-# The job uploads installers as workflow artifacts named
+# The build job uploads installers as workflow artifacts named
 # noosphere3d-linux-x64, noosphere3d-windows-x64,
 # noosphere3d-macos-aarch64, and noosphere3d-macos-x64.
+# A separate job writes THIRD-PARTY-NOTICES.md and uploads it as
+# noosphere3d-third-party-notices. Generation fails only when a tool
+# errors, not because of a licence string it found.
 # tagName and releaseId are omitted, so tauri-action does not create
 # or publish a GitHub Release.
 
@@ -102,3 +105,32 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/**/release/bundle/dmg/*.dmg
             src-tauri/target/**/release/bundle/macos/*.app
+
+  notices:
+    name: third-party notices
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: install npm dependencies
+        run: npm ci
+
+      - name: install cargo-license
+        run: cargo install cargo-license --version 0.7.0 --locked
+
+      - name: generate third-party notices
+        run: node scripts/generate-third-party-notices.mjs
+
+      - name: upload third-party notices
+        uses: actions/upload-artifact@v4
+        with:
+          name: noosphere3d-third-party-notices
+          if-no-files-found: error
+          path: THIRD-PARTY-NOTICES.md
