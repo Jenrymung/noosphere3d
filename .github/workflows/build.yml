@@ -1,21 +1,31 @@
 # Unsigned Tauri bundles for Linux, Windows, and macOS.
 #
-# This file is ready for a CI host that actually provides those runners
-# (GitHub Actions, or Buildkite with Windows and macOS queues mapped).
-# Origin does not run it. Depot CI, if connected later, rewrites
-# windows-latest and macos-latest to a Linux sandbox, so it must not be
-# the host for this matrix.
+# Runs on GitHub Actions for this repository
+# (https://github.com/Jenrymung/noosphere3d). Origin does not run it.
+# Depot CI, if connected later, rewrites windows-latest and macos-latest
+# to a Linux sandbox, so it must not be the host for this matrix.
 #
-# No signing secrets are set. macOS bundles are ad-hoc signed via
-# bundle.macOS.signingIdentity in src-tauri/tauri.conf.json.
-# The job uploads the installers as CI artifacts. It does not create a
-# GitHub Release, because this repository is not on GitHub.
+# No signing secrets are set. macOS bundles stay ad-hoc signed via
+# bundle.macOS.signingIdentity "-" in src-tauri/tauri.conf.json.
+# There is no Apple signing identity.
+#
+# The job uploads installers as workflow artifacts named
+# noosphere3d-linux-x64, noosphere3d-windows-x64,
+# noosphere3d-macos-aarch64, and noosphere3d-macos-x64.
+# tagName and releaseId are omitted, so tauri-action does not create
+# or publish a GitHub Release.
 
 name: build
 
 on:
   push:
-  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   build:
@@ -45,7 +55,7 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils rpm file libfuse2
 
       - uses: actions/setup-node@v6
         with:
@@ -67,13 +77,16 @@ jobs:
         run: npm test
 
       - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         with:
           args: ${{ matrix.args }}
 
       - name: upload unsigned bundles
         uses: actions/upload-artifact@v4
         with:
-          name: mindmap3d-${{ matrix.label }}
+          name: noosphere3d-${{ matrix.label }}
           if-no-files-found: error
           path: |
             src-tauri/target/release/bundle/deb/*.deb

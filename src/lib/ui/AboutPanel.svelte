@@ -44,7 +44,7 @@
   <p class="path">{logPath}</p>
   <p class="hint">The log stays on this computer. Attach it yourself if you send a bug report.</p>
   <h3>Updates</h3>
-  <p class="hint">Check for updates opens {RELEASES_PAGE_URL} in your browser. That address is a placeholder until the project is public. The app does not contact it.</p>
+  <p class="hint">Check for updates opens {RELEASES_PAGE_URL} in your browser. The app does not contact it.</p>
   <div class="row">
     <button type="button" onclick={onUpdates}>Check for updates</button>
     <button type="button" onclick={onClose}>Close</button>

@@ -12,8 +12,8 @@ describe("about and updates", () => {
     expect(THIRD_PARTY_NOTICES.some((item) => item.name === "Tauri" && item.licence === "MIT OR Apache-2.0")).toBe(true);
   });
 
-  it("points Check for updates at a placeholder releases page", () => {
-    expect(RELEASES_PAGE_URL).toBe("https://github.com/noosphere3d/noosphere3d/releases");
+  it("points Check for updates at the GitHub releases page", () => {
+    expect(RELEASES_PAGE_URL).toBe("https://github.com/Jenrymung/noosphere3d/releases");
     expect(RELEASES_PAGE_URL.endsWith("/releases")).toBe(true);
   });
 });

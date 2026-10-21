@@ -1,8 +1,7 @@
 /**
- * Placeholder until a public repository exists.
  * Check for updates asks the operating system to open this page. The app does not request it.
  */
-export const RELEASES_PAGE_URL = "https://github.com/noosphere3d/noosphere3d/releases";
+export const RELEASES_PAGE_URL = "https://github.com/Jenrymung/noosphere3d/releases";
 
 export async function openReleasesPage(): Promise<void> {
   const tauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;

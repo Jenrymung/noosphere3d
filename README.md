@@ -1,6 +1,6 @@
 # Noosphere 3D
 
-Keyboard-first desktop app for free-form 3D mind maps. The bundle identifier is `io.github.noosphere3d.app`. Maps stay in `.mindmap3d` files. This slice covers the Phase 0 scene, the Phase 1 map engine, Phase 2 navigation, Phase 3 editing, Phase 4 links and link types, Phase 5 files, tabs, and crash recovery, Phase 6 keyboard and accessibility basics, and the Phase 7 housekeeping that does not need a maintainer decision. Waypoint editing is later. The plan is `docs/plan.md`.
+Keyboard-first desktop app for free-form 3D mind maps. The bundle identifier is `io.github.jenrymung.noosphere3d`. Maps stay in `.mindmap3d` files. The repository is [Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d). This slice covers the Phase 0 scene, the Phase 1 map engine, Phase 2 navigation, Phase 3 editing, Phase 4 links and link types, Phase 5 files, tabs, and crash recovery, Phase 6 keyboard and accessibility basics, and the Phase 7 housekeeping that does not need a maintainer decision. Waypoint editing is later. The plan is `docs/plan.md`.
 
 The UI and the engine are TypeScript (Svelte 5, Vite, Three.js). The desktop shell is Tauri 2. The same page also runs in a browser, which is how the scene was checked on this Linux machine.
 
@@ -96,7 +96,7 @@ macOS builds ship unsigned and not notarized. There is no Apple Developer accoun
 
 On Windows, SmartScreen may say that it protected the PC. Choose **More info → Run anyway**.
 
-`.github/workflows/build.yml` is the cross-platform matrix: `npm test`, then Tauri bundles for Linux x64, Windows x64, and macOS Apple Silicon and Intel. Artifacts are whatever the CI host attaches to the run (GitHub Actions artifacts, or the equivalent on a connected app). Origin does not run this file. Depot CI has no Windows or macOS sandboxes and would rebuild every job on Linux. A host with real Windows and macOS runners, such as GitHub Actions, is still required before anyone can download a Windows or Mac installer.
+[`.github/workflows/build.yml`](https://github.com/Jenrymung/noosphere3d/blob/main/.github/workflows/build.yml) runs on [GitHub Actions](https://github.com/Jenrymung/noosphere3d/actions) for every push to `main` and when started by hand. It runs `npm test`, then builds unsigned Tauri bundles for Linux x64, Windows x64, and macOS Apple Silicon and Intel. Artifacts are `noosphere3d-linux-x64`, `noosphere3d-windows-x64`, `noosphere3d-macos-aarch64`, and `noosphere3d-macos-x64`. The workflow does not create a GitHub Release. Origin does not run this file. Depot CI has no Windows or macOS sandboxes and would rebuild every job on Linux.
 
 ## Tests
 
@@ -139,7 +139,7 @@ Frame times in the HUD and from **Measure orbit** are real `requestAnimationFram
 
 ## About, the file schema, and the error log
 
-Help → About shows version 0.1.0, third-party notices, and the MIT licence. Help → Check for updates asks the operating system to open `https://github.com/noosphere3d/noosphere3d/releases`. That address is a placeholder until a public repository exists. The app does not request the page itself.
+Help → About shows version 0.1.0, third-party notices, and the MIT licence. Help → Check for updates asks the operating system to open `https://github.com/Jenrymung/noosphere3d/releases`. The app does not request the page itself.
 
 `docs/mindmap3d.schema.json` is the published JSON Schema for `.mindmap3d`. Contribution sign-off is in `CONTRIBUTING.md` (Developer Certificate of Origin, `git commit -s`).
 

@@ -32,7 +32,7 @@
 
 **No decisions are waiting on the user.**
 
-**Next steps (GitHub):** create the GitHub repo and push; enable `.github/workflows/build.yml`; replace the placeholder Releases URL in *Help → Check for updates…*.
+**GitHub:** the repository is [Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d). `.github/workflows/build.yml` runs on push to `main` and uploads unsigned installers as artifacts. It does not publish a GitHub Release. *Help → Check for updates…* opens `https://github.com/Jenrymung/noosphere3d/releases`.
 
 **Manual checks still to do:**
 
@@ -103,7 +103,7 @@ These have been decided by the creator. All the earlier open questions have now 
 | **Licence** *(decided)* | **MIT** only (replaces the earlier MIT OR Apache-2.0 draft). Licence files become a single `LICENSE` (MIT). |
 | **macOS signing** *(decided)* | **Not paying** for the Apple Developer Program. macOS builds ship **unsigned and not notarized**; the README and release notes tell users how to open them (*System Settings → Privacy & Security → Open Anyway*; right-click the app → **Open** only works on older macOS versions). Windows signing via SignPath is unchanged. |
 | **GitHub** *(decided)* | The project goes on **GitHub**. The CI build workflow (`.github/workflows/build.yml`, Windows/macOS/Linux) and **GitHub Releases** run there. |
-| **App name** *(decided)* | **Noosphere 3D**. Used for the repository, bundle identifier, file-association text and installers. Bundle identifier: **`io.github.<owner>.noosphere3d`**, with `<owner>` filled in once the GitHub repo exists (avoid ending in `.app`). The file extension stays **`.mindmap3d`**. |
+| **App name** *(decided)* | **Noosphere 3D**. Used for the repository, bundle identifier, file-association text and installers. Bundle identifier: **`io.github.jenrymung.noosphere3d`** (it does not end in `.app`). The file extension stays **`.mindmap3d`**. |
 | **Manual screen-reader passes** *(Phase 7)* | Not yet done. **Orca (Linux) can be done now**. **NVDA (Windows)** and **VoiceOver (macOS)** happen with the **deferred cross-platform checks**. All three are on the pre-release checklist. |
 
 **What the free-form web decision changes in this plan**
@@ -1625,22 +1625,22 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 
 ### Deferred: cross-platform build matrix (S) — *before Phase 7 at the latest*
 
-- **Status:** deferred by decision. The repo is on Cursor Origin, which doesn't run workflow files; `.github/workflows/build.yml` is ready on `main`.
-- **Recommended route:** set up a **GitHub mirror** of the repo so the existing workflow runs on GitHub Actions, which gives public repos **free Windows and macOS runners**. Build and run unit tests on Windows, macOS and Linux for every push.
+- **Status:** `.github/workflows/build.yml` runs on GitHub Actions for [Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d) on every push to `main` and when started by hand. It runs the tests and builds unsigned Windows, macOS, and Linux installers, then uploads them as artifacts. It does not publish a GitHub Release. Origin does not run this file.
+- **Still required:** a green run of that matrix, then hand checks on real Windows and Mac machines.
 - **Then check by hand on real Windows and Mac machines:** WebView2/WKWebView differences, OS shortcut clashes, file association for `.mindmap3d`, and SDF vs CSS2D labels on real GPUs (which decides the CSS2D toggle).
 - **Hard deadline:** this must be done, and any fixes landed, **before the Phase 7 release work**. Doing it earlier (any time a mirror is convenient) reduces the risk of late surprises.
 
 ### Phase 7 — MVP hardening and release (M) — *build-side work done; release waits for the user*
 
-**Done (build side):** About dialog with third-party notices (fixed list); *Help → Check for updates…* opens a **placeholder** Releases URL (to be replaced once the GitHub repo exists); `docs/mindmap3d.schema.json` published; CONTRIBUTING with DCO; local error log; `docs/pre-release-checklist.md`; licence decided (MIT); Linux .deb/.rpm/AppImage built locally; **fonts bundled locally** (no web font loading). Performance measured on a CPU-only machine (see [9.1](#91-suggested-targets)).
+**Done (build side):** About dialog with third-party notices (fixed list); *Help → Check for updates…* opens `https://github.com/Jenrymung/noosphere3d/releases`; `docs/mindmap3d.schema.json` published; CONTRIBUTING with DCO; local error log; `docs/pre-release-checklist.md`; licence decided (MIT); Linux .deb/.rpm/AppImage built locally; **fonts bundled locally** (no web font loading). Performance measured on a CPU-only machine (see [9.1](#91-suggested-targets)).
 
-**Decided:** licence **MIT**; app name **Noosphere 3D**; macOS builds **unsigned, not notarized** (no Apple membership); project hosted on **GitHub** (CI + Releases). **Next steps:** create the GitHub repo and push, enable `.github/workflows/build.yml`, replace the placeholder Releases URL. See [MVP status](#mvp-status).
+**Decided:** licence **MIT**; app name **Noosphere 3D**; macOS builds **unsigned, not notarized** (no Apple membership); project hosted at [Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d). The build workflow uploads artifacts and does not publish a GitHub Release yet. See [MVP status](#mvp-status).
 
 - Performance pass against the targets in [Section 9](#9-performance).
 - **Release pipeline** (requires the deferred cross-platform build matrix to be running and green first): `tauri-action` building signed/unsigned installers for all three platforms; GitHub Releases with notes, SHA-256 checksums and artifact attestations; Linux AppImage/deb/rpm.
 - **Signing** per [10.1](#101-licence-distribution-and-updates): Windows via SignPath (if accepted) or unsigned with instructions; macOS **unsigned and not notarized** (decided), with instructions on how to open it.
 - **Open-source housekeeping:** licence file (**MIT, decided**), third-party notices in About, CONTRIBUTING with DCO, published JSON schema.
-- *Help → Check for updates…* opens the Releases page in the browser (no in-app network use). Currently a placeholder URL.
+- *Help → Check for updates…* opens `https://github.com/Jenrymung/noosphere3d/releases` in the browser (no in-app network use).
 - Error logging to a **local** log file only (local-only decision); users can choose to attach it to a bug report themselves.
 - **Exit:** MVP release.
 
@@ -1656,13 +1656,13 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 - [ ] Performance targets met ([Section 9](#9-performance)). Load/index and navigation timings are already well within the targets.
 - [x] Licence decided: **MIT** (switch the drafted files to a single MIT `LICENSE`).
 - [x] Final app name chosen: **Noosphere 3D** (apply to repository, bundle id, installers; `.mindmap3d` unchanged).
-- [ ] Bundle identifier set to `io.github.<owner>.noosphere3d` with the real GitHub owner (not ending in `.app`).
+- [x] Bundle identifier set to `io.github.jenrymung.noosphere3d` (not ending in `.app`).
 - [ ] Third-party notices generated in CI (replacing the MVP's fixed list in About).
-- [ ] Check-for-updates placeholder URL replaced with the real Releases page.
+- [x] Check-for-updates URL set to `https://github.com/Jenrymung/noosphere3d/releases`.
 - [x] Signing decisions made: Windows via SignPath (if accepted); macOS **unsigned, not notarized** (see [10.1](#101-licence-distribution-and-updates)).
 - [ ] SignPath set up for Windows (or unsigned with instructions), and the macOS "how to open an unsigned app" note added to the README and release notes.
 - [x] Hosting decided: **GitHub** (CI builds + GitHub Releases).
-- [ ] GitHub repo created and code pushed.
+- [x] GitHub repo created and code pushed: https://github.com/Jenrymung/noosphere3d.
 - [ ] `.github/workflows/build.yml` enabled and green on Windows, macOS and Linux.
 - [ ] Network check: no non-localhost requests in a release build.
 
@@ -1777,4 +1777,4 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 - Store maps as **versioned, git-friendly JSON**, **locally only**. **Manual save is the default**, with optional autosave-to-file in Preferences, and atomic writes, backups and a crash-recovery file in both modes.
 - Design **accessibility in from the start** (ARIA mirror, neighbourhood view, reduced motion, keyboard paths for every mouse operator, remappable keys).
 - **Latest decisions:** `.mindmap3d` files with an id-keyed, order-keyed, **collaboration-ready format**; **tabs** with per-tab undo and save state; **Blender-style mouse operators** (G grab, L link, V view; S scale in v1); **link labels** showing title plus type name; **waypoints move with the selection**; images in a **resources folder** (v1); self-links allowed (creating them comes later); Vim keys later; open source under **MIT** (decided), named **Noosphere 3D**, hosted on **GitHub** and shipped on **GitHub Releases** (macOS builds unsigned and not notarized), with **no in-app network use in MVP** and an **opt-in update check** in v1.
-- All open questions are answered; none remain ([12.2](#122-open-questions-for-the-creator)). Next: create the GitHub repo and push, enable the build workflow, and replace the placeholder Releases URL.
+- All open questions are answered; none remain ([12.2](#122-open-questions-for-the-creator)). The repository is https://github.com/Jenrymung/noosphere3d, the bundle identifier is `io.github.jenrymung.noosphere3d`, and Check for updates opens https://github.com/Jenrymung/noosphere3d/releases. The build workflow uploads unsigned artifacts and does not publish a GitHub Release yet.

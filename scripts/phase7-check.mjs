@@ -64,7 +64,7 @@ const about = await page.evaluate(() => {
 if (about.title !== "About Noosphere 3D" || about.eyebrow !== "Noosphere 3D" || !about.licence || about.pending) {
   throw new Error(`About dialog did not show the new name and MIT licence: ${JSON.stringify(about)}`);
 }
-if (about.releases !== "https://github.com/noosphere3d/noosphere3d/releases") {
+if (about.releases !== "https://github.com/Jenrymung/noosphere3d/releases") {
   throw new Error(`Unexpected releases URL: ${about.releases}`);
 }
 await page.screenshot({ path: `${outDir}/about-desktop.png` });
