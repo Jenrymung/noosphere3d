@@ -90,7 +90,11 @@ npm run tauri dev
 
 **Windows and macOS builds are unverified.** This tree was only compiled and launched on Linux.
 
-macOS builds ship unsigned and not notarized. Apple Silicon builds carry an ad-hoc signature (`signingIdentity: "-"`) so the system can open the file. Gatekeeper blocks the first launch. After that, open the app from **System Settings → Privacy & Security → Open Anyway**. Right-clicking the app and choosing **Open** only works on older macOS versions.
+## Opening an unsigned build
+
+macOS builds ship unsigned and not notarized. There is no Apple Developer account. Apple Silicon builds still carry an ad-hoc signature (`signingIdentity: "-"` in `src-tauri/tauri.conf.json`, which `.github/workflows/build.yml` leaves in place) so the system can open the file. Gatekeeper blocks the first launch. After that blocked launch, open the app from **System Settings → Privacy & Security → Open Anyway**. Right-clicking the app and choosing **Open** only works on older macOS versions.
+
+On Windows, SmartScreen may say that it protected the PC. Choose **More info → Run anyway**.
 
 `.github/workflows/build.yml` is the cross-platform matrix: `npm test`, then Tauri bundles for Linux x64, Windows x64, and macOS Apple Silicon and Intel. Artifacts are whatever the CI host attaches to the run (GitHub Actions artifacts, or the equivalent on a connected app). Origin does not run this file. Depot CI has no Windows or macOS sandboxes and would rebuild every job on Linux. A host with real Windows and macOS runners, such as GitHub Actions, is still required before anyone can download a Windows or Mac installer.
 
