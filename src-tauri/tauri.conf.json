@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "3D Mind Map",
+  "productName": "Noosphere 3D",
   "version": "0.1.0",
-  "identifier": "com.mindmap3d.app",
+  "identifier": "io.github.noosphere3d.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:43123",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "3D Mind Map",
+        "title": "Noosphere 3D",
         "width": 1280,
         "height": 800,
         "minWidth": 800,
@@ -28,8 +28,8 @@
     "fileAssociations": [
       {
         "ext": ["mindmap3d"],
-        "name": "3D Mind Map Document",
-        "description": "A 3D mind map",
+        "name": "Noosphere 3D Document",
+        "description": "A Noosphere 3D mind map",
         "mimeType": "application/vnd.mindmap3d+json",
         "role": "Editor"
       }

@@ -31,7 +31,7 @@
 
 <div class="about" data-overlay role="dialog" aria-modal="true" aria-labelledby="about-title">
   <p class="kicker">Help</p>
-  <h2 id="about-title" tabindex="-1" bind:this={titleEl}>About 3D Mind Map</h2>
+  <h2 id="about-title" tabindex="-1" bind:this={titleEl}>About Noosphere 3D</h2>
   <p>Version {APP_VERSION}</p>
   <p>{LICENCE_STATUS}</p>
   <h3>Third-party notices</h3>

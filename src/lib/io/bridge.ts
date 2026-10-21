@@ -213,14 +213,14 @@ export async function createFileBridge(): Promise<FileBridge> {
     async pickOpen() {
       const picked = await dialog.open({
         multiple: false,
-        filters: [{ name: "3D Mind Map", extensions: ["mindmap3d"] }],
+        filters: [{ name: "Noosphere 3D", extensions: ["mindmap3d"] }],
       });
       return typeof picked === "string" ? picked : null;
     },
     async pickSave(suggested) {
       const picked = await dialog.save({
         defaultPath: suggested,
-        filters: [{ name: "3D Mind Map", extensions: ["mindmap3d"] }],
+        filters: [{ name: "Noosphere 3D", extensions: ["mindmap3d"] }],
       });
       return picked ?? null;
     },

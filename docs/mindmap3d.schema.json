@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mindmap3d.app/schema/mindmap3d.schema.json",
-  "title": "3D Mind Map document",
-  "description": "JSON inside a .mindmap3d file, format version MAJOR.MINOR. This schema is published with the app. The app licence is pending the maintainer's confirmation; LICENSE-MIT and LICENSE-APACHE are in the repository as the recommended MIT OR Apache-2.0 pair.",
+  "title": "Noosphere 3D document",
+  "description": "JSON inside a .mindmap3d file, format version MAJOR.MINOR. Published with Noosphere 3D under the MIT licence (see LICENSE). The format identifier stays mindmap3d.",
   "type": "object",
   "additionalProperties": false,
   "required": ["format", "version", "linkTypes", "nodes", "links"],

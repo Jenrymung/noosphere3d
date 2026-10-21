@@ -1,11 +1,12 @@
-# 3D Mind Map — Product & Technical Plan
+# Noosphere 3D — Product & Technical Plan
 
-*Working title: "3D Mind Map". Status: planning draft. Audience: the app's creator.*
+*App name: **Noosphere 3D** (decided). Status: MVP build complete on Linux; release pending (see [MVP status](#mvp-status)). Audience: the app's creator.*
 
 ---
 
 ## Contents
 
+- [MVP status](#mvp-status)
 - [1. Overview](#1-overview)
 - [2. Goals and non-goals](#2-goals-and-non-goals)
 - [3. Target users and core use cases](#3-target-users-and-core-use-cases)
@@ -20,6 +21,26 @@
 - [12. Risks and open questions](#12-risks-and-open-questions)
 - [13. Testing strategy](#13-testing-strategy)
 - [14. Summary](#14-summary)
+
+---
+
+## MVP status
+
+**All build phases (0–7) are complete on Linux.** The MVP features are built and tested (112 tests, axe-core clean on the checked page, keyboard-only walkthrough passed). Linux .deb, .rpm and AppImage packages build locally. Development so far has been Linux-only, by decision.
+
+**Decided:** licence is **MIT** (MIT only); app name is **Noosphere 3D** (`.mindmap3d` extension unchanged); **Apple signing: not paying**, so macOS builds ship **unsigned and not notarized**, with a note telling users how to open them (right-click the app → **Open**, or *System Settings → Privacy & Security → Open Anyway*); the project goes on **GitHub**, where the CI build workflow (Windows/macOS/Linux) and GitHub Releases run.
+
+**No decisions are waiting on the user.**
+
+**Next steps (GitHub):** create the GitHub repo and push; enable `.github/workflows/build.yml`; replace the placeholder Releases URL in *Help → Check for updates…*.
+
+**Manual checks still to do:**
+
+- **Windows and macOS runs** (once the repo is on GitHub and the workflow runs): smoke tests, WebView2/WKWebView differences, OS shortcut clashes, file association.
+- **Real-GPU checks:** frame rates (unmeasured so far; the machine had no GPU) and the SDF vs CSS2D label check.
+- **Screen readers:** NVDA (Windows), VoiceOver (macOS) and Orca (Linux). Orca currently can't read the app (see the WebKitGTK accessibility risk in [12.1](#121-risks)).
+
+The full list is in the pre-release checklist ([Section 11](#11-roadmap-and-milestones), Phase 7; also `docs/pre-release-checklist.md` in the repo).
 
 ---
 
@@ -53,7 +74,7 @@ These have been decided by the creator. All the earlier open questions have now 
 | **Images and attachments** | Referenced by **relative path** into a **resources folder** next to the map (default `<map name>.resources/`, or a folder path stored in the map). Inserting an image **copies** it into that folder. Planned for **v1** (see [5.9](#59-images-and-attachments-v1)). |
 | **Mouse** | **Blender-style "hotkey + mouse movement"** for editing: press a key, move the mouse, then **click/Enter to confirm** or **Esc/right-click to cancel**. Examples: **G** grabs (moves), **L** links, **V** orbits the view, **S** scales. Otherwise the mouse is for the camera and selection (see [5.7](#57-mouse-hotkey-mouse-movement-operators)). |
 | **Vim-style keys** | **Not a priority.** An optional Vim keymap is a *Later* item. |
-| **Licence and distribution** | **Open source**, distributed through **GitHub Releases**. The recommended licence is **MIT OR Apache-2.0** (the creator can change it). For updates, the MVP has no in-app network use: a "Check for updates" menu item just opens the Releases page. An **opt-in** automatic check (off by default) can come in v1. See [10.1](#101-licence-distribution-and-updates). |
+| **Licence and distribution** | **Open source**, distributed through **GitHub Releases**. The licence is **MIT** *(decided)*. For updates, the MVP has no in-app network use: a "Check for updates" menu item just opens the Releases page. An **opt-in** automatic check (off by default) can come in v1. See [10.1](#101-licence-distribution-and-updates). |
 | **Collaboration-ready format** | Collaboration itself is *Later*, but the format is **CRDT-friendly now**: stable ids, **objects keyed by id** instead of arrays wherever position would carry meaning, and explicit **fractional-index `order` keys** for link-type order and waypoint order. |
 | **Tabs** | **Several maps open as tabs in one window.** Each tab has its own undo history, selection, camera and unsaved state. Shortcuts: **Mod+T** new, **Mod+W** close, **Ctrl+Tab** / **Mod+1…9** switch (see [5.8](#58-tabs)). |
 | **Reader** | **Docked Reader panel by default**, with a pop-over card as an option. |
@@ -78,6 +99,12 @@ These have been decided by the creator. All the earlier open questions have now 
 | **Backup rotation** *(after Phase 5)* | In **autosave** mode, a backup is rotated **at most every 3 minutes**. In manual mode, **each manual save rotates one backup**. Mod+S in autosave mode counts as a manual save. |
 | **View state and saving** *(after Phase 5)* | View state (**camera and type filters**) **never marks the map as unsaved**. It's written into the file on the **next save**. In **manual mode**, closing with only view changes **gives no prompt**, and those view changes are **not saved**: the app never writes the file without a save in manual mode. In autosave mode, view-only changes don't trigger an autosave; they go along with the next one. |
 | **Session restore** *(after Phase 5)* | Restoring all open tabs on launch is a **v1** item, not MVP. |
+| **Keyboard and accessibility (as built)** *(Phase 6)* | Palette opens with **/** or **Mod+K**. A **`>`** prefix shows commands only and **`@`** shows nodes only. **?** opens a **help sheet generated from the live keymap**, so it can't drift from the real bindings. The status bar shows **per-mode hints**, and **F6** cycles regions. Screen readers get an **ARIA tree** plus **live-region announcements**. The **axis gizmo** can be hidden in Preferences. **Letter and digit shortcuts are layout-aware** on non-US keyboards, and a **test rejects shortcuts that clash with OS shortcuts**. |
+| **Licence** *(decided)* | **MIT** only (replaces the earlier MIT OR Apache-2.0 draft). Licence files become a single `LICENSE` (MIT). |
+| **macOS signing** *(decided)* | **Not paying** for the Apple Developer Program. macOS builds ship **unsigned and not notarized**; the README and release notes tell users how to open them (right-click the app → **Open**, or *System Settings → Privacy & Security → Open Anyway*). Windows signing via SignPath is unchanged. |
+| **GitHub** *(decided)* | The project goes on **GitHub**. The CI build workflow (`.github/workflows/build.yml`, Windows/macOS/Linux) and **GitHub Releases** run there. |
+| **App name** *(decided)* | **Noosphere 3D**. Used for the repository, bundle identifier, file-association text and installers. The file extension stays **`.mindmap3d`**. |
+| **Manual screen-reader passes** *(Phase 7)* | Not yet done. **Orca (Linux) can be done now**. **NVDA (Windows)** and **VoiceOver (macOS)** happen with the **deferred cross-platform checks**. All three are on the pre-release checklist. |
 
 **What the free-form web decision changes in this plan**
 
@@ -128,7 +155,7 @@ These have been decided by the creator. All the earlier open questions have now 
 | Link rendering | One batched line geometry **per link type**, instanced arrowheads | Cheap filtering (hide/dim a type in one switch) and few draw calls |
 | Validation | **Valibot** or **Zod** | Safe loading of files and clean migrations |
 | Ordering | **fractional-indexing** (order keys) | Collaboration-ready ordering of link types and waypoints |
-| Licence | **MIT OR Apache-2.0** | Permissive and matches Tauri and most dependencies; the creator can change it (see [10.1](#101-licence-distribution-and-updates)) |
+| Licence | **MIT** *(decided)* | Permissive and compatible with Tauri and the planned dependencies (see [10.1](#101-licence-distribution-and-updates)) |
 
 ---
 
@@ -207,13 +234,13 @@ These are *likely* audiences, not research findings. The creator should check th
 | Tabs | Several maps as **tabs** in one window, each with its own undo history, selection, camera, Reader state and unsaved indicator; Mod+T / Mod+W / Ctrl+Tab / Mod+1…9; single instance (opening a file from the OS adds a tab) |
 | Navigation | Spatial arrow-key navigation between nodes; cycle through a node's links; back/forward navigation history |
 | Modes | Navigate, Reader, Edit, Link, Grab, View, Command palette… always shown in the status bar |
-| Command palette | **/** or **Ctrl/Cmd+K**: fuzzy search over commands and node text |
+| Command palette | **/** or **Ctrl/Cmd+K**: fuzzy search over commands and node text; **`>`** prefix = commands only, **`@`** = nodes only |
 | Undo/redo | For all document changes, with typing grouped into sensible steps |
 | Files | New, Open, Save, Save As; **`.mindmap3d`** versioned JSON format with id-keyed objects and order keys; atomic writes; all local; **file association** registered by the installers |
 | Saving | **Manual save by default** (Mod+S) with unsaved-changes indicator and prompt on close; **optional autosave-to-file mode** in Preferences |
 | Safety | Crash-recovery file (in both modes); crash recovery prompt on start-up; backups of previous versions |
 | Preferences | Basic Preferences window (Mod+,): save mode, autosave timing, backups, label size, theme, reduced motion, link-type picker behaviour |
-| Help | **?** shows a shortcut cheat sheet |
+| Help | **?** shows a help sheet **generated from the live keymap** |
 | Accessibility baseline | Visible focus/selection, screen-reader announcements of selection, reduced-motion support, no keyboard traps |
 | Packaging and release | Installers for Windows, macOS, Linux, built by CI and published on **GitHub Releases** with checksums; open-source licence files; "Check for updates" menu item that opens the Releases page (no in-app network use) |
 
@@ -291,7 +318,7 @@ These are *likely* audiences, not research findings. The creator should check th
 
 - The **Reader / editor panel** is docked on the right, resizable, and **closed until a node or link is opened**. It shows rendered Markdown (Reader) or the editor with live preview (Edit). **Mod+\\** "pins" it open so it follows the selection while you navigate.
 - The **save indicator** appears in the status bar and window title: a dot "●" and "Unsaved changes" in manual mode; "Autosaving…" / "Saved 14:32" in autosave mode; "Not saved yet" for a new, never-saved map. On macOS the standard "edited" dot in the window's close button is used where the platform allows.
-- The **status bar** always shows the current **mode** and context hints such as "Enter: open · E: edit · L: link · G: grab · /: commands". During a mouse operator it shows the operator, any axis constraint and the current value ("Grab · X axis · 2.40"). A keyboard-first app depends on this.
+- The **status bar** always shows the current **mode** and **per-mode** context hints (as built) such as "Enter: open · E: edit · L: link · G: grab · /: commands". During a mouse operator it shows the operator, any axis constraint and the current value ("Grab · X axis · 2.40"). A keyboard-first app depends on this.
 - The **tab strip** shows one tab per open map, with "●" on tabs with unsaved changes (shown as `*` in the sketch above; see [5.8](#58-tabs)).
 
 ### 5.2 3D navigation
@@ -754,8 +781,8 @@ Mode rules:
 
 | Key | Action |
 |---|---|
-| **/** or **Mod+K** | Command palette (fuzzy search over commands and nodes) |
-| **?** | Shortcut cheat sheet |
+| **/** or **Mod+K** | Command palette (fuzzy search over commands and nodes; `>` commands only, `@` nodes only) (as built) |
+| **?** | Help sheet, generated from the live keymap (as built) |
 | **Esc** | Back out one level: close overlay, cancel an operator, leave Link/Waypoint; from Edit the chain is **Edit → Reader → selection → cleared**. On a link, Esc returns to the node you arrived from; on a node, it clears the selection |
 | **Mod+N** / **Mod+T** | New map in a new tab (inside the type picker or link-type manager, Mod+N creates a new link type instead) |
 | **Mod+O** | Open a map in a new tab |
@@ -764,7 +791,7 @@ Mode rules:
 | **Mod+W** | Close the current tab (in manual mode asks "Save / Don't save / Cancel" if there are unsaved changes) |
 | **Mod+,** | Preferences (save mode, autosave timing, backups, appearance…) |
 | **Mod+\\** | Pin/unpin the Reader panel (follows the selection) |
-| **F6** / **Shift+F6** | Move focus between regions: tab strip → scene → Reader/editor panel → status bar |
+| **F6** / **Shift+F6** | Move focus between regions: tab strip → scene → Reader/editor panel → status bar (as built) |
 | **Mod+= / Mod+-** | Increase / decrease UI and label font size |
 | **O** (Navigate) | Toggle neighbourhood view (v1) |
 | **Shift+L** (Navigate) | Show/hide the legend overlay (and focus it) (as built) |
@@ -900,7 +927,7 @@ Mode rules:
 
 | Key | Action |
 |---|---|
-| Type | Fuzzy filter; prefix **>** for commands only, **@** for nodes only |
+| Type | Fuzzy filter; prefix **`>`** for commands only, **`@`** for nodes only (as built) |
 | **↑ / ↓** | Move through results |
 | **Enter** | Run command / jump to node |
 | **Esc** | Close |
@@ -934,8 +961,8 @@ Algorithm, run on each arrow press:
 
 ### 6.4 Keyboard pitfalls to handle
 
-- **Non-US keyboard layouts:** on many layouts (e.g. German) **/** and **?** need Shift or AltGr. Match symbol shortcuts on `event.key` (the character), match letter shortcuts on `event.code` (the physical key) where the position matters, and always give an alternative (**Mod+K** for the palette). The remappable keymap (v1) is the final safety net.
-- **OS and WebView reserved keys:** some combinations are taken by the OS (e.g. Cmd+H on macOS, Alt+F4 on Windows) or by the WebView. Avoid them, and test on all three platforms.
+- **Non-US keyboard layouts:** on many layouts (e.g. German) **/** and **?** need Shift or AltGr. Match symbol shortcuts on `event.key` (the character), match letter shortcuts on `event.code` (the physical key) where the position matters, and always give an alternative (**Mod+K** for the palette). The remappable keymap (v1) is the final safety net. **As built:** letter and digit shortcuts are **layout-aware** on non-US keyboards (e.g. QWERTZ, AZERTY).
+- **OS and WebView reserved keys:** some combinations are taken by the OS (e.g. Cmd+H on macOS, Alt+F4 on Windows) or by the WebView. Avoid them, and test on all three platforms. **As built:** an automated test **rejects any default shortcut that clashes with a known OS shortcut** (per platform).
 - **Cmd+Tab on macOS** belongs to the OS app switcher, so tab switching uses **Ctrl+Tab** on every platform, plus **Mod+Shift+] / [** and **Mod+1…9**.
 - **Single letters used by operators** (G, L, V, S) only act in Navigate/Waypoint mode, never while typing.
 - **Tab and focus:** Tab normally moves browser focus. The scene captures Tab only while it has focus, and **F6** gives a standard way to move between regions.
@@ -967,7 +994,7 @@ A WebGL canvas is invisible to screen readers, so accessibility has to be design
 | Remapping | User-editable keymap (v1). |
 | Non-3D fallback | The neighbourhood view lets someone use the whole app as a structured list if 3D isn't helpful to them. |
 
-Testing: manual passes with NVDA (Windows), VoiceOver (macOS) and Orca (Linux), and an automated axe-core check of the HTML UI.
+Testing: an automated axe-core check of the HTML UI (**clean on the checked page** in Phase 6), plus manual passes with NVDA (Windows), VoiceOver (macOS) and Orca (Linux). **The manual passes haven't been done yet.** Orca can be done now on Linux. NVDA and VoiceOver come with the deferred cross-platform checks, and all three are on the pre-release checklist.
 
 ---
 
@@ -1400,6 +1427,7 @@ Stored locally in the app's config folder, not in map files. Opened with **Mod+,
 | | Title plates behind labels (v1) | Off |
 | | Label renderer: *SDF* / *CSS2D* (dev toggle, kept until tested on real GPUs; `` ` `` / `` Shift+` `` in dev/test builds) | SDF |
 | | Open nodes in: *Docked Reader panel* / *Pop-over card* | Docked panel |
+| | Show axis gizmo (corner) | On |
 | **Motion** | Reduce motion (follows the OS by default) | System |
 | | Animated link flow (v1): off / selection / all | Off |
 | **Linking** | Skip the type picker (use last-used type; app-level, not stored in maps) | Off |
@@ -1426,6 +1454,15 @@ These are goals to test against, not measured facts.
 | ~10,000+ nodes | Still opens, navigates and saves; heavy features (layout) may be slower |
 | Open/save | Under a second for a 5,000-node file |
 | Idle | Close to zero CPU/GPU use when nothing is moving (laptop battery) |
+
+**Measured in Phase 7** (CPU-only machine, no GPU):
+
+| Measurement | Result |
+|---|---|
+| Load + index 10,000 nodes | **247 ms** |
+| Arrow-key target pick among 5,000 nodes | **4 ms** |
+| Render-on-demand | **Confirmed idle** when nothing moves |
+| Frame rates | **Not measured yet** (no GPU); needs real-GPU hardware before release |
 
 ### 9.2 Techniques
 
@@ -1482,15 +1519,15 @@ Tauri uses each OS's own WebView: **WebView2** (Chromium-based) on Windows, **WK
 
 ### 10.1 Licence, distribution and updates
 
-**Licence: recommended *MIT OR Apache-2.0* (dual).** The creator can change this; it's a recommendation, not legal advice.
+**Licence: *MIT* (decided by the creator).** Not legal advice. The alternatives considered are kept below for reference.
 
 | Option | What it means | Fit |
 |---|---|---|
-| **MIT OR Apache-2.0** *(recommended)* | Anyone can use, modify and redistribute, including in closed products; Apache-2.0 adds an explicit patent grant | Same as Tauri and much of the Rust ecosystem; compatible with the planned dependencies (Three.js, Svelte, CodeMirror, markdown-it, troika-three-text, Immer and d3-force-3d are MIT; DOMPurify is MPL-2.0/Apache-2.0); lowest friction for contributors and for other tools reading or writing `.mindmap3d` |
+| **MIT** *(chosen)* | Anyone can use, modify and redistribute, including in closed products | Permissive like Tauri and much of the Rust ecosystem; compatible with the planned dependencies (Three.js, Svelte, CodeMirror, markdown-it, troika-three-text, Immer and d3-force-3d are MIT; DOMPurify is MPL-2.0/Apache-2.0); lowest friction for contributors and for other tools reading or writing `.mindmap3d` |
 | **GPL-3.0-or-later** | Anyone distributing modified versions must publish their source under the GPL | Pick this if it matters that forks stay open source. Still compatible with MIT/Apache-2.0 dependencies |
 | **MPL-2.0** | Copyleft per file: changed files must stay open, but it can be combined with other code | A middle ground |
 
-Practical points: add `LICENSE-MIT` and `LICENSE-APACHE`; ship third-party licence notices in the app's About box (generated in CI); use a **DCO sign-off** for contributions rather than a CLA; publish the `.mindmap3d` JSON schema under the same licence (or CC0), so anyone can build compatible tools.
+Practical points: add a single `LICENSE` file (MIT); ship third-party licence notices in the app's About box (generated in CI); use a **DCO sign-off** for contributions rather than a CLA; publish the `.mindmap3d` JSON schema under the same licence (or CC0), so anyone can build compatible tools.
 
 **Distribution: GitHub Releases.**
 
@@ -1506,7 +1543,7 @@ Practical points: add `LICENSE-MIT` and `LICENSE-APACHE`; ship third-party licen
 | **macOS** | Gatekeeper blocks un-notarized apps; users have to allow them in *System Settings → Privacy & Security* ("Open Anyway"). Recent macOS versions removed the old right-click → Open shortcut, so this is a real barrier. Apple Silicon needs at least an ad-hoc signature, which the build can add. | Notarization needs a paid **Apple Developer Program** membership (about US$99/year at the time of writing). There's no general free tier for open-source individuals. |
 | **Linux** | No OS-level signing; packages install normally | Publish checksums; optionally GPG-sign them. Flathub builds are signed by Flathub. |
 
-*Recommendation:* sign Windows builds through SignPath if the project qualifies. For macOS, budget for the Apple membership if Mac users matter; otherwise ship unsigned builds with clear install instructions in the README and release notes. Release notes should always say which builds are signed.
+*Decision:* sign Windows builds through SignPath if the project qualifies. **macOS (decided): no Apple membership**; macOS builds ship **unsigned and not notarized** (ad-hoc signed for Apple Silicon), with a note in the README and release notes on how to open them: right-click the app → **Open**, or *System Settings → Privacy & Security → Open Anyway* (the right-click route only works on older macOS versions). Release notes should always say which builds are signed.
 
 **Updates: recommendation**
 
@@ -1577,13 +1614,14 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 - **Exit:** "pull the power cord" test passes; no data lost beyond the last few seconds.
 - **Outcome:** power-cord test **passes**; a headless run made **no non-localhost network requests**. Mod+N/Mod+T, backup rotation, view-state saving and session-restore scope were settled (see Decisions).
 
-### Phase 6 — Keyboard polish and accessibility baseline (M) — *in progress*
+### Phase 6 — Keyboard polish and accessibility baseline (M) — *done*
 
 - **Corner axis gizmo** (deferred from Phase 2): small, keyboard-ignorable, hideable in Preferences.
 - Command palette (commands + nodes), help sheet, status bar hints.
 - ARIA tree mirror and live announcements; F6 region cycling; focus return after dialogs.
 - Non-US layout checks; OS shortcut conflict checks.
 - **Exit:** the full MVP is usable with no mouse and with a screen reader at a basic level.
+- **Outcome:** **112 tests** passing; **axe-core clean** on the checked page; **keyboard-only walkthrough passed**. Built as recorded in Decisions (palette prefixes, live-keymap help sheet, per-mode hints, F6, ARIA tree + live region, hideable gizmo, layout-aware shortcuts, OS-clash test). Manual screen-reader passes are still open (see the pre-release checklist).
 
 ### Deferred: cross-platform build matrix (S) — *before Phase 7 at the latest*
 
@@ -1592,15 +1630,39 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 - **Then check by hand on real Windows and Mac machines:** WebView2/WKWebView differences, OS shortcut clashes, file association for `.mindmap3d`, and SDF vs CSS2D labels on real GPUs (which decides the CSS2D toggle).
 - **Hard deadline:** this must be done, and any fixes landed, **before the Phase 7 release work**. Doing it earlier (any time a mirror is convenient) reduces the risk of late surprises.
 
-### Phase 7 — MVP hardening and release (M)
+### Phase 7 — MVP hardening and release (M) — *build-side work done; release waits for the user*
+
+**Done (build side):** About dialog with third-party notices; *Help → Check for updates…* opens a **placeholder** Releases URL (to be replaced once the GitHub repo exists); `docs/mindmap3d.schema.json` published; CONTRIBUTING with DCO; local error log; `docs/pre-release-checklist.md`; licence decided (MIT); Linux .deb/.rpm/AppImage built locally; **fonts bundled locally** (no web font loading). Performance measured on a CPU-only machine (see [9.1](#91-suggested-targets)).
+
+**Decided:** licence **MIT**; app name **Noosphere 3D**; macOS builds **unsigned, not notarized** (no Apple membership); project hosted on **GitHub** (CI + Releases). **Next steps:** create the GitHub repo and push, enable `.github/workflows/build.yml`, replace the placeholder Releases URL. See [MVP status](#mvp-status).
 
 - Performance pass against the targets in [Section 9](#9-performance).
 - **Release pipeline** (requires the deferred cross-platform build matrix to be running and green first): `tauri-action` building signed/unsigned installers for all three platforms; GitHub Releases with notes, SHA-256 checksums and artifact attestations; Linux AppImage/deb/rpm.
-- **Signing** per [10.1](#101-licence-distribution-and-updates): Windows via SignPath (if accepted) or unsigned with instructions; macOS notarized if the Apple membership is taken, otherwise unsigned with instructions.
-- **Open-source housekeeping:** licence files (MIT OR Apache-2.0 recommended), third-party notices in About, CONTRIBUTING with DCO, published JSON schema.
-- *Help → Check for updates…* opens the Releases page (no in-app network use).
+- **Signing** per [10.1](#101-licence-distribution-and-updates): Windows via SignPath (if accepted) or unsigned with instructions; macOS **unsigned and not notarized** (decided), with instructions on how to open it.
+- **Open-source housekeeping:** licence file (**MIT, decided**), third-party notices in About, CONTRIBUTING with DCO, published JSON schema.
+- *Help → Check for updates…* opens the Releases page in the browser (no in-app network use). Currently a placeholder URL.
 - Error logging to a **local** log file only (local-only decision); users can choose to attach it to a bug report themselves.
 - **Exit:** MVP release.
+
+**Pre-release checklist**
+
+- [ ] Deferred cross-platform build matrix running and green (Windows, macOS, Linux); manual smoke tests on real Windows and Mac machines.
+- [ ] **Manual screen-reader passes:** **Orca (Linux)** can be done now; **NVDA (Windows)** and **VoiceOver (macOS)** with the deferred cross-platform checks.
+- [ ] **Orca / WebKitGTK accessibility investigated and fixed:** under a normal launch the WebKitGTK sandbox stops Orca seeing the window; with the sandbox disabled, nothing is announced yet (see Risks).
+- [ ] **Real-GPU frame rates** measured against the targets (unmeasured so far; CPU-only machine).
+- [ ] SDF vs CSS2D labels checked on real GPUs; decide on the CSS2D toggle.
+- [ ] `.mindmap3d` file association checked on each OS.
+- [ ] "Unplug the mouse" full-workflow test on each OS.
+- [ ] Performance targets met ([Section 9](#9-performance)). Load/index and navigation timings are already well within the targets.
+- [x] Licence decided: **MIT** (switch the drafted files to a single MIT `LICENSE`).
+- [x] Final app name chosen: **Noosphere 3D** (apply to repository, bundle id, installers; `.mindmap3d` unchanged).
+- [ ] Check-for-updates placeholder URL replaced with the real Releases page.
+- [x] Signing decisions made: Windows via SignPath (if accepted); macOS **unsigned, not notarized** (see [10.1](#101-licence-distribution-and-updates)).
+- [ ] SignPath set up for Windows (or unsigned with instructions), and the macOS "how to open an unsigned app" note added to the README and release notes.
+- [x] Hosting decided: **GitHub** (CI builds + GitHub Releases).
+- [ ] GitHub repo created and code pushed.
+- [ ] `.github/workflows/build.yml` enabled and green on Windows, macOS and Linux.
+- [ ] Network check: no non-localhost requests in a release build.
 
 ### v1 phases (after MVP)
 
@@ -1633,7 +1695,7 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 | **WebView differences** (esp. WebKitGTK on Linux) | Medium | Medium–High | Linux only for now; all three OSes once the deferred build matrix runs (before Phase 7); WebGL 2 only; avoid cutting-edge web APIs |
 | **Windows and macOS unverified, deliberately deferred** (development is Linux-only; no GitHub mirror yet, and Cursor Origin doesn't run workflows) | High | Medium–High (grows the longer it waits) | Until the matrix runs, these stay **untested**: **WebView2 (Windows) / WKWebView (macOS) differences**, **OS shortcut clashes**, **`.mindmap3d` file association**, and **SDF labels on real GPUs**. Run the ready `.github/workflows/build.yml` via a **GitHub mirror** (free Windows/macOS runners for public repos) **before the Phase 7 release at the latest**, then smoke-test by hand on a real Windows PC and Mac. Meanwhile, avoid Linux-only assumptions (paths, shortcuts, WebKitGTK quirks) |
 | **SDF label decision based on limited hardware** | Medium | Medium | CSS2D toggle kept until tested on real GPUs (integrated and discrete, all three OSes) |
-| **Keyboard conflicts** (OS shortcuts, non-US layouts, IME) | Medium | High | Mod-key abstraction, alternatives for symbol keys, remappable keymap, per-OS testing |
+| **Keyboard conflicts** (OS shortcuts, non-US layouts, IME) | Medium | High | Mod-key abstraction, alternatives for symbol keys, layout-aware letter/digit shortcuts and an automated OS-clash test (both built), remappable keymap (v1), per-OS testing (deferred) |
 | **DOM label performance** | Medium | Medium (if CSS2D) | SDF labels, label cap, culling |
 | **Data loss** | High | Low with mitigations | Atomic writes, backups, recovery file in both save modes, never overwrite newer-version or externally changed files |
 | **Forgetting to save in manual mode** | Medium | Medium | Clear text indicator, close/quit prompt, recovery file, crash-recovery prompt |
@@ -1642,8 +1704,10 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 | **Reader/edit step feels slower than direct editing** | Low–Medium | Medium | **E** edits directly; Tab-created nodes open straight in Edit; Esc goes back to where you came from |
 | **Doc icons all look the same** in big maps | Medium | Medium | Node colour tint, size, text/blank variants, titles always shown near; more icon variants in v1 |
 | **Unsafe Markdown (script injection)** | High | Low with mitigations | markdown-it with raw HTML off, DOMPurify, strict CSP, Tauri capabilities, external links open in browser |
-| **3D canvas inaccessible to screen readers** | Medium–High | Certain without work | ARIA tree mirror, live region, neighbourhood view |
-| **Unsigned builds scare users** (SmartScreen, Gatekeeper) | Medium | High (unless signed) | SignPath for Windows if accepted; budget for Apple notarization or document "Open Anyway" clearly; checksums and attestations; say in release notes which builds are signed |
+| **3D canvas inaccessible to screen readers** | Medium–High | Certain without work | ARIA tree mirror, live region (built in Phase 6), neighbourhood view |
+| **Orca can't read the app on Linux** (WebKitGTK sandbox) | High for blind users on Linux | Confirmed | Under a normal launch, **Orca can't see the Tauri window**, because the WebKitGTK sandbox blocks the accessibility bus. With the sandbox disabled, the window **appears in the accessibility tree but nothing is announced yet**. **Investigate before release:** WebKitGTK and at-spi configuration (e.g. letting the sandbox reach the accessibility bus), newer WebKitGTK versions, and whether the ARIA tree/live region reach at-spi. Don't ship with the sandbox disabled as a workaround without weighing the security cost. On the pre-release checklist |
+| **Manual screen-reader passes not yet done** (only automated axe-core so far) | Medium–High | Medium | **Orca on Linux now**; **NVDA (Windows)** and **VoiceOver (macOS)** with the deferred cross-platform checks; all three on the pre-release checklist and required before release |
+| **Unsigned builds scare users** (SmartScreen, Gatekeeper) | Medium | High (unless signed) | SignPath for Windows if accepted; macOS unsigned (decided), so document right-click → Open / "Open Anyway" clearly; checksums and attestations; say in release notes which builds are signed |
 | **Mouse operators unfamiliar** to people who don't use Blender | Medium | Medium | Status-bar hints and an on-screen operator HUD; identical keyboard paths; cancel always restores exactly; short first-run tips; help sheet section |
 | **Tabs multiply memory and GPU use** | Medium | Medium | One shared renderer; only the active tab renders; release inactive tabs' GPU resources; documents are small compared with GPU buffers |
 | **Broken image references** after moving/renaming maps outside the app | Medium | Medium | Resources folder next to the map; relink offer; missing-file placeholders with Locate/Remove; Check resources |
@@ -1666,11 +1730,9 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 
 ### 12.2 Open questions for the creator
 
-**All earlier open questions have been answered and moved to [Decisions](#decisions).** Only a few small practical points remain, none of them blocking Phase 0 or Phase 1:
+**No open questions remain.** All questions have been answered and moved to [Decisions](#decisions).
 
-1. **App name:** "3D Mind Map" is a working title. A final name affects the repository, bundle identifier, file-association description and installers (decide before Phase 7).
-2. **macOS signing budget:** pay for the Apple Developer Program to ship notarized Mac builds, or ship unsigned Mac builds with instructions at first (see [10.1](#101-licence-distribution-and-updates))? Decide before the first public release.
-3. **Licence confirmation:** this plan recommends **MIT OR Apache-2.0**. Confirm it, or choose GPL-3.0-or-later / MPL-2.0, before the repository goes public.
+*Decided since:* app name **Noosphere 3D**; licence **MIT**; macOS builds **unsigned and not notarized**; project hosted on **GitHub** (CI + Releases).
 
 ## 13. Testing strategy
 
@@ -1712,5 +1774,5 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 - Nodes appear as **doc icons with floating titles** (explicit title or first heading/line). **Enter or a click opens** the rendered Markdown in a docked **Reader panel**; **E** edits; **Esc** steps back.
 - Store maps as **versioned, git-friendly JSON**, **locally only**. **Manual save is the default**, with optional autosave-to-file in Preferences, and atomic writes, backups and a crash-recovery file in both modes.
 - Design **accessibility in from the start** (ARIA mirror, neighbourhood view, reduced motion, keyboard paths for every mouse operator, remappable keys).
-- **Latest decisions:** `.mindmap3d` files with an id-keyed, order-keyed, **collaboration-ready format**; **tabs** with per-tab undo and save state; **Blender-style mouse operators** (G grab, L link, V view; S scale in v1); **link labels** showing title plus type name; **waypoints move with the selection**; images in a **resources folder** (v1); self-links allowed (creating them comes later); Vim keys later; open source under **MIT OR Apache-2.0** (recommended), shipped on **GitHub Releases**, with **no in-app network use in MVP** and an **opt-in update check** in v1.
-- All earlier open questions are answered. Only the app name, the macOS signing budget and licence confirmation remain ([12.2](#122-open-questions-for-the-creator)).
+- **Latest decisions:** `.mindmap3d` files with an id-keyed, order-keyed, **collaboration-ready format**; **tabs** with per-tab undo and save state; **Blender-style mouse operators** (G grab, L link, V view; S scale in v1); **link labels** showing title plus type name; **waypoints move with the selection**; images in a **resources folder** (v1); self-links allowed (creating them comes later); Vim keys later; open source under **MIT** (decided), named **Noosphere 3D**, hosted on **GitHub** and shipped on **GitHub Releases** (macOS builds unsigned and not notarized), with **no in-app network use in MVP** and an **opt-in update check** in v1.
+- All open questions are answered; none remain ([12.2](#122-open-questions-for-the-creator)). Next: create the GitHub repo and push, enable the build workflow, and replace the placeholder Releases URL.

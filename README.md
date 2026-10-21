@@ -1,6 +1,6 @@
-# 3D Mind Map
+# Noosphere 3D
 
-Keyboard-first desktop app for free-form 3D mind maps. This slice covers the Phase 0 scene, the Phase 1 map engine, Phase 2 navigation, Phase 3 editing, Phase 4 links and link types, Phase 5 files, tabs, and crash recovery, Phase 6 keyboard and accessibility basics, and the Phase 7 housekeeping that does not need a maintainer decision. Waypoint editing is later. The plan is `docs/plan.md`.
+Keyboard-first desktop app for free-form 3D mind maps. The bundle identifier is `io.github.noosphere3d.app`. Maps stay in `.mindmap3d` files. This slice covers the Phase 0 scene, the Phase 1 map engine, Phase 2 navigation, Phase 3 editing, Phase 4 links and link types, Phase 5 files, tabs, and crash recovery, Phase 6 keyboard and accessibility basics, and the Phase 7 housekeeping that does not need a maintainer decision. Waypoint editing is later. The plan is `docs/plan.md`.
 
 The UI and the engine are TypeScript (Svelte 5, Vite, Three.js). The desktop shell is Tauri 2. The same page also runs in a browser, which is how the scene was checked on this Linux machine.
 
@@ -90,7 +90,9 @@ npm run tauri dev
 
 **Windows and macOS builds are unverified.** This tree was only compiled and launched on Linux.
 
-`.github/workflows/build.yml` is the cross-platform matrix: `npm test`, then unsigned Tauri bundles for Linux x64, Windows x64, and macOS Apple Silicon and Intel. macOS bundles are ad-hoc signed (`signingIdentity: "-"`). Artifacts are whatever the CI host attaches to the run (GitHub Actions artifacts, or the equivalent on a connected app). Origin does not run this file. Depot CI has no Windows or macOS sandboxes and would rebuild every job on Linux. A host with real Windows and macOS runners, such as GitHub Actions or Buildkite with those queues mapped, is still required before anyone can download a Windows or Mac installer.
+macOS builds ship unsigned and not notarized. Apple Silicon builds carry an ad-hoc signature (`signingIdentity: "-"`) so the system can open the file. Gatekeeper blocks the first launch. After that, open the app from **System Settings → Privacy & Security → Open Anyway**. Right-clicking the app and choosing **Open** only works on older macOS versions.
+
+`.github/workflows/build.yml` is the cross-platform matrix: `npm test`, then Tauri bundles for Linux x64, Windows x64, and macOS Apple Silicon and Intel. Artifacts are whatever the CI host attaches to the run (GitHub Actions artifacts, or the equivalent on a connected app). Origin does not run this file. Depot CI has no Windows or macOS sandboxes and would rebuild every job on Linux. A host with real Windows and macOS runners, such as GitHub Actions, is still required before anyone can download a Windows or Mac installer.
 
 ## Tests
 
@@ -133,7 +135,7 @@ Frame times in the HUD and from **Measure orbit** are real `requestAnimationFram
 
 ## About, the file schema, and the error log
 
-Help → About shows version 0.1.0, third-party notices, and the licence status. Help → Check for updates asks the operating system to open `https://github.com/mindmap3d/mindmap3d/releases`. That address is a placeholder until a public repository exists. The app does not request the page itself.
+Help → About shows version 0.1.0, third-party notices, and the MIT licence. Help → Check for updates asks the operating system to open `https://github.com/noosphere3d/noosphere3d/releases`. That address is a placeholder until a public repository exists. The app does not request the page itself.
 
 `docs/mindmap3d.schema.json` is the published JSON Schema for `.mindmap3d`. Contribution sign-off is in `CONTRIBUTING.md` (Developer Certificate of Origin, `git commit -s`).
 
@@ -145,4 +147,4 @@ Frame-rate targets in the plan (about 60 fps near 1,000 nodes on an integrated G
 
 ## Licence
 
-The recommended licence is MIT OR Apache-2.0. `LICENSE-MIT` and `LICENSE-APACHE` are in the repository. Confirmation of that licence is still pending.
+MIT. See `LICENSE`.

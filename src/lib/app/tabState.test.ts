@@ -43,8 +43,8 @@ describe("tab save state", () => {
   it("names files and the window", () => {
     expect(ensureSuffix("Flood")).toBe("Flood.mindmap3d");
     expect(ensureSuffix("Flood.mindmap3d")).toBe("Flood.mindmap3d");
-    expect(windowTitle("●", "Flood")).toBe("● Flood — 3D Mind Map");
-    expect(windowTitle("", "Flood")).toBe("Flood — 3D Mind Map");
+    expect(windowTitle("●", "Flood")).toBe("● Flood — Noosphere 3D");
+    expect(windowTitle("", "Flood")).toBe("Flood — Noosphere 3D");
     expect(resolveTheme("system", true)).toBe("dark");
     expect(resolveTheme("light", true)).toBe("light");
   });

@@ -125,7 +125,7 @@ export function tabTitle(title: string | undefined): string {
 }
 
 export function windowTitle(mark: string, title: string): string {
-  return mark ? `${mark} ${title} — 3D Mind Map` : `${title} — 3D Mind Map`;
+  return mark ? `${mark} ${title} — Noosphere 3D` : `${title} — Noosphere 3D`;
 }
 
 export function resolveTheme(theme: ThemePreference, systemDark: boolean): "light" | "dark" {

@@ -23,5 +23,4 @@ export const THIRD_PARTY_NOTICES: ThirdPartyNotice[] = [
 
 export const APP_VERSION = "0.1.0";
 
-export const LICENCE_STATUS =
-  "LICENSE-MIT and LICENSE-APACHE are in the repository (MIT OR Apache-2.0). Confirmation of that licence is still pending.";
+export const LICENCE_STATUS = "Noosphere 3D is released under the MIT licence. The terms are in LICENSE.";

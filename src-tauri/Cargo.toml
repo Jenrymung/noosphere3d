@@ -1,8 +1,9 @@
 [package]
-name = "mindmap3d"
+name = "noosphere3d"
 version = "0.1.0"
-description = "Keyboard-first desktop app for free-form 3D mind maps"
-authors = ["3D Mind Map contributors"]
+description = "Noosphere 3D is a keyboard-first desktop app for free-form 3D mind maps"
+authors = ["Noosphere 3D contributors"]
+license = "MIT"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -11,7 +12,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "mindmap3d_lib"
+name = "noosphere3d_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

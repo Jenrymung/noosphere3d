@@ -1,8 +1,8 @@
-# Contributing to 3D Mind Map
+# Contributing to Noosphere 3D
 
-## Licence status
+## Licence
 
-`LICENSE-MIT` and `LICENSE-APACHE` are in the repository. They are the recommended **MIT OR Apache-2.0** pair. The maintainer has not confirmed that licence yet. Until that confirmation, treat the licence as pending. A contribution is not a decision that the project has adopted a final licence.
+Noosphere 3D is released under the MIT licence. The terms are in `LICENSE`.
 
 ## Developer Certificate of Origin
 
@@ -44,7 +44,7 @@ By making a contribution to this project, I certify that:
     this project or the open source license(s) involved.
 ```
 
-The "license indicated in the file" is pending the maintainer's confirmation, as noted above.
+The "license indicated in the file" is the MIT licence in `LICENSE`.
 
 ## What to send
 

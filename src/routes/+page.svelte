@@ -2137,7 +2137,7 @@
     <div class="brand">
       <span class="mark" aria-hidden="true"></span>
       <div>
-        <p class="eyebrow">3D Mind Map</p>
+        <p class="eyebrow">Noosphere 3D</p>
         <h1>{doc.meta.title || "Untitled map"}</h1>
       </div>
     </div>

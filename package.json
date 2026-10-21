@@ -1,9 +1,9 @@
 {
-  "name": "mindmap3d",
+  "name": "noosphere3d",
   "version": "0.1.0",
-  "description": "Keyboard-first desktop app for free-form 3D mind maps",
+  "description": "Noosphere 3D is a keyboard-first desktop app for free-form 3D mind maps",
   "type": "module",
-  "license": "MIT OR Apache-2.0",
+  "license": "MIT",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
