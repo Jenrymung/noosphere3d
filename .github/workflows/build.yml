@@ -219,14 +219,19 @@ jobs:
           import json, os, subprocess, sys
           tag = os.environ["GITHUB_REF_NAME"]
           repo = os.environ["GITHUB_REPOSITORY"]
+          with open("src-tauri/tauri.conf.json", encoding="utf-8") as fh:
+              conf = json.load(fh)
+          # tauri-action replaces spaces in the product name with dots in release asset names.
+          product = conf["productName"].replace(" ", ".")
+          version = conf["version"]
           expected = {
-              "Noosphere 3D_0.1.0_amd64.AppImage",
-              "Noosphere 3D_0.1.0_amd64.deb",
-              "Noosphere 3D-0.1.0-1.x86_64.rpm",
-              "Noosphere 3D_0.1.0_x64-setup.exe",
-              "Noosphere 3D_0.1.0_x64_en-US.msi",
-              "Noosphere 3D_0.1.0_aarch64.dmg",
-              "Noosphere 3D_0.1.0_x64.dmg",
+              f"{product}_{version}_amd64.AppImage",
+              f"{product}_{version}_amd64.deb",
+              f"{product}-{version}-1.x86_64.rpm",
+              f"{product}_{version}_x64-setup.exe",
+              f"{product}_{version}_x64_en-US.msi",
+              f"{product}_{version}_aarch64.dmg",
+              f"{product}_{version}_x64.dmg",
               "THIRD-PARTY-NOTICES.md",
           }
           raw = subprocess.check_output(
