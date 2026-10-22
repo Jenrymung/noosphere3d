@@ -96,7 +96,7 @@ macOS builds ship unsigned and not notarized. There is no Apple Developer accoun
 
 On Windows, SmartScreen may say that it protected the PC. Choose **More info → Run anyway**.
 
-[`.github/workflows/build.yml`](https://github.com/Jenrymung/noosphere3d/blob/main/.github/workflows/build.yml) runs on [GitHub Actions](https://github.com/Jenrymung/noosphere3d/actions) for every push to `main` and when started by hand. It runs `npm test`, then builds unsigned Tauri bundles for Linux x64, Windows x64, and macOS Apple Silicon and Intel. Artifacts are `noosphere3d-linux-x64`, `noosphere3d-windows-x64`, `noosphere3d-macos-aarch64`, and `noosphere3d-macos-x64`. The workflow does not create a GitHub Release. Origin does not run this file. Depot CI has no Windows or macOS sandboxes and would rebuild every job on Linux.
+[`.github/workflows/build.yml`](https://github.com/Jenrymung/noosphere3d/blob/main/.github/workflows/build.yml) runs on [GitHub Actions](https://github.com/Jenrymung/noosphere3d/actions) for every push to `main` and when started by hand. It runs `npm test`, then builds unsigned Tauri bundles for Linux x64, Windows x64, and macOS Apple Silicon and Intel. Artifacts are `noosphere3d-linux-x64`, `noosphere3d-windows-x64`, `noosphere3d-macos-aarch64`, and `noosphere3d-macos-x64`. Those runs do not create a GitHub Release. A push of a `v*` tag uses the same matrix to attach the installers to a GitHub Release. Origin does not run this file. Depot CI has no Windows or macOS sandboxes and would rebuild every job on Linux.
 
 ## Tests
 
