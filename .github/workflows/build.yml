@@ -14,9 +14,12 @@
 # The build job uploads installers as workflow artifacts named
 # noosphere3d-linux-x64, noosphere3d-windows-x64,
 # noosphere3d-macos-aarch64, and noosphere3d-macos-x64.
-# A separate job writes THIRD-PARTY-NOTICES.md and uploads it as
-# noosphere3d-third-party-notices. Generation fails only when a tool
-# errors, not because of a licence string it found.
+# THIRD-PARTY-NOTICES.md is generated before tests and again before
+# each bundle (npm run build), then embedded in the app. A separate
+# job uploads the same file as noosphere3d-third-party-notices.
+# Generation fails only when a tool errors, not because of a licence
+# string it found. A local dev build writes a short placeholder when
+# the tools are missing.
 #
 # Pushes to main and workflow_dispatch do not create a GitHub Release.
 # A push of a v* tag creates a draft pre-release, tauri-action attaches
@@ -117,6 +120,12 @@ jobs:
       - name: install npm dependencies
         run: npm ci
 
+      - name: install cargo-license
+        run: cargo install cargo-license --version 0.7.0 --locked
+
+      - name: generate third-party notices
+        run: npm run notices
+
       - name: test
         run: npm test
 
@@ -180,7 +189,7 @@ jobs:
         run: cargo install cargo-license --version 0.7.0 --locked
 
       - name: generate third-party notices
-        run: node scripts/generate-third-party-notices.mjs
+        run: npm run notices
 
       - name: upload third-party notices
         uses: actions/upload-artifact@v4

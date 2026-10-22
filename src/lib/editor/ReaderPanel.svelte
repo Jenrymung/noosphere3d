@@ -26,6 +26,8 @@
     onOpen,
     onUndo,
     onRedo,
+    documentMarkdown = null,
+    documentTitle = "Third-party notices",
   }: {
     doc: MapDocument;
     shown: Target | null;
@@ -45,6 +47,9 @@
     onOpen: (target: Target) => void;
     onUndo: () => void;
     onRedo: () => void;
+    /** Bundled markdown shown instead of the selected note. Null keeps the map Reader. */
+    documentMarkdown?: string | null;
+    documentTitle?: string;
   } = $props();
 
   let root = $state<HTMLElement | null>(null);
@@ -68,9 +73,10 @@
     queueMicrotask(() => headingEl?.focus());
   });
 
+  const documentMode = $derived(documentMarkdown !== null);
   const node = $derived(shown?.kind === "node" ? doc.nodes[shown.id] : undefined);
   const link = $derived(shown?.kind === "link" ? doc.links[shown.id] : undefined);
-  const reading = $derived(mode === "read" ? (node?.text ?? link?.text ?? "") : draftText);
+  const reading = $derived(documentMode ? (documentMarkdown ?? "") : mode === "read" ? (node?.text ?? link?.text ?? "") : draftText);
   const html = $derived(renderMarkdown(reading));
 
   const groups = $derived.by(() => {
@@ -96,6 +102,14 @@
   });
 
   const header = $derived.by(() => {
+    if (documentMode) {
+      return {
+        kicker: "Notices",
+        title: documentTitle,
+        meta: "Bundled with this build. Works offline.",
+        color: "#9bb0c4",
+      };
+    }
     if (!shown) return { kicker: "Reader", title: "Nothing open", meta: "Select a node, or press Mod+Enter to start a map.", color: "#9bb0c4" };
     if (shown.kind === "node") {
       const title = node ? nodeTitle(node) || "Untitled" : "Missing node";
@@ -164,6 +178,10 @@
       else titleEl?.focus();
       return;
     }
+    if (documentMode && mode === "read" && (event.code === "KeyE" || event.key === "Enter") && !mod && !event.altKey) {
+      event.preventDefault();
+      return;
+    }
     if (mode === "read" && event.target instanceof HTMLAnchorElement) return;
     if (mode === "read" && event.code === "KeyE" && !mod && !event.altKey && !event.shiftKey) {
       event.preventDefault();
@@ -187,7 +205,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<aside class="reader" id="region-reader" data-editor-root role="complementary" aria-labelledby="reader-title" bind:this={root} onkeydown={onPanelKey}>
+<aside class="reader" class:wide={documentMode} id="region-reader" data-editor-root role="complementary" aria-labelledby="reader-title" bind:this={root} onkeydown={onPanelKey}>
   <header class="reader-head">
     <span class="swatch" style:background={header.color}></span>
     <div>
@@ -195,12 +213,14 @@
       <h2 id="reader-title" tabindex="-1" bind:this={headingEl}>{header.title}</h2>
       <p class="meta">{header.meta}</p>
     </div>
-    <button type="button" class:on={pinned} aria-pressed={pinned} onclick={onPin}>
-      {pinned ? "Pinned" : "Pin"}
-    </button>
+    {#if !documentMode}
+      <button type="button" class:on={pinned} aria-pressed={pinned} onclick={onPin}>
+        {pinned ? "Pinned" : "Pin"}
+      </button>
+    {/if}
   </header>
 
-  {#if mode === "edit" && shown}
+  {#if mode === "edit" && shown && !documentMode}
     <label class="title-field">
       <span>Title</span>
       <input
@@ -216,7 +236,7 @@
     <p class="kicker preview-label">Preview</p>
   {/if}
 
-  {#if shown?.kind === "node" && groups.length > 0 && mode === "read"}
+  {#if !documentMode && shown?.kind === "node" && groups.length > 0 && mode === "read"}
     <div class="groups">
       {#each groups as group (group.id)}
         <p class="type-name"><span class="swatch tiny" style:background={group.color}></span>{group.name}</p>
@@ -230,8 +250,10 @@
   {/if}
 
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="prose" role="region" aria-label="Note" tabindex="0" bind:this={prose}>
-    {#if !shown}
+  <div class="prose" role="region" aria-label={documentMode ? "Third-party notices" : "Note"} tabindex="0" bind:this={prose}>
+    {#if documentMode}
+      {@html html}
+    {:else if !shown}
       <p class="empty">Nothing is open. Press Enter on a node, or Mod+Enter to place a new one.</p>
     {:else if !reading.trim()}
       <p class="empty">This note is empty. Press E to write it.</p>
@@ -240,7 +262,9 @@
     {/if}
   </div>
   <p class="hint">
-    {#if mode === "edit"}
+    {#if documentMode}
+      Esc closes · arrows scroll · F6 moves between regions
+    {:else if mode === "edit"}
       Esc steps back · Mod+Enter keeps it and opens the Reader · Alt+T title
     {:else}
       E edits · Esc closes · arrows scroll
@@ -266,6 +290,10 @@
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
     overflow: hidden;
+  }
+
+  .reader.wide {
+    width: min(720px, calc(100vw - 32px));
   }
 
   .reader-head {
@@ -401,6 +429,21 @@
   :global(.reader .prose p),
   :global(.reader .prose ul) {
     margin: 0.35em 0;
+  }
+
+  :global(.reader .prose table) {
+    border-collapse: collapse;
+    width: max-content;
+    max-width: none;
+    font-size: 12px;
+  }
+
+  :global(.reader .prose th),
+  :global(.reader .prose td) {
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    padding: 3px 6px;
+    text-align: left;
+    vertical-align: top;
   }
 
   :global(.reader .prose a) {

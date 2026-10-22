@@ -63,5 +63,18 @@ describe("announcements", () => {
         operator: "",
       }),
     ).toBe("Opened Overwhelms drains. Press E to edit, Escape to close");
+    expect(
+      liveAnnouncement({
+        doc,
+        index: session.index,
+        nodeId: "n-flood",
+        linkId: null,
+        panel: "read",
+        openedTitle: "Third-party notices",
+        linkMode: false,
+        operator: "",
+        notices: true,
+      }),
+    ).toBe("Opened third-party notices. Escape closes, F6 moves between regions");
   });
 });

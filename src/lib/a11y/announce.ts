@@ -47,7 +47,10 @@ export function liveAnnouncement(input: {
   openedTitle: string | null;
   linkMode: boolean;
   operator: string;
+  /** The Reader is showing the bundled third-party notices, not a map note. */
+  notices?: boolean;
 }): string {
+  if (input.notices && input.panel !== "closed") return "Opened third-party notices. Escape closes, F6 moves between regions";
   if (input.panel === "edit" && input.openedTitle) return `Editing ${input.openedTitle}. Escape returns to the Reader`;
   if (input.panel === "read" && input.openedTitle) return announceOpened(input.openedTitle);
   if (input.linkMode) {

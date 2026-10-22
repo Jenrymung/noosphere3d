@@ -1,14 +1,17 @@
 <script lang="ts">
+  import { NOTICES_BUTTON_LABEL } from "$lib/about/embeddedNotices";
   import { APP_VERSION, LICENCE_STATUS, THIRD_PARTY_NOTICES } from "$lib/about/notices";
   import { RELEASES_PAGE_URL } from "$lib/about/releases";
 
   let {
     logPath,
     onUpdates,
+    onLicences,
     onClose,
   }: {
     logPath: string;
     onUpdates: () => void;
+    onLicences: () => void;
     onClose: () => void;
   } = $props();
 
@@ -40,6 +43,9 @@
       <li><strong>{item.name}</strong> · {item.licence} · {item.note}</li>
     {/each}
   </ul>
+  <div class="row">
+    <button type="button" id="about-licences" onclick={onLicences}>{NOTICES_BUTTON_LABEL}</button>
+  </div>
   <h3>Error log</h3>
   <p class="path">{logPath}</p>
   <p class="hint">The log stays on this computer. Attach it yourself if you send a bug report.</p>

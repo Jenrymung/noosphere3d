@@ -32,6 +32,7 @@
     typeRows,
     withFilter,
   } from "$lib/input/linkOps";
+  import { EMBEDDED_THIRD_PARTY_NOTICES, NOTICES_DOCUMENT_TITLE, NOTICES_TREE_LABEL } from "$lib/about/embeddedNotices";
   import { RELEASES_PAGE_URL, openReleasesPage } from "$lib/about/releases";
   import { createFileBridge, createMemoryBridge, type FileBridge, type RecoveryItem } from "$lib/io/bridge";
   import { BROWSER_ERROR_LOG_KEY, installErrorLog } from "$lib/io/errorLog";
@@ -137,6 +138,8 @@
   let bench = $state<BenchRow[] | null>(null);
   let benching = $state(false);
   let panel = $state<"closed" | "read" | "edit">("closed");
+  /** Reader is showing the bundled licence inventory instead of a map note. */
+  let viewingNotices = $state(false);
   let pinned = $state(false);
   let editFromReader = $state(false);
   let shown = $state<Target | null>(null);
@@ -212,6 +215,7 @@
     linkMode;
     panel;
     hud.operator;
+    if (viewingNotices && panel !== "closed") return "Esc closes · arrows scroll · F6 moves between regions";
     return statusHint(hintMode());
   });
   const tree = $derived.by(() => {
@@ -335,6 +339,7 @@
   }
 
   function openedTitle(): string | null {
+    if (viewingNotices && panel !== "closed") return NOTICES_DOCUMENT_TITLE;
     if (panel === "closed" || !shown) return null;
     if (shown.kind === "node") {
       const node = session.doc.nodes[shown.id];
@@ -386,6 +391,16 @@
     if (!aboutOpen) return;
     aboutOpen = false;
     restoreFocus();
+  }
+
+  function openLicences() {
+    if (panel === "edit") leaveEdit();
+    aboutOpen = false;
+    helpOpen = false;
+    paletteOpen = false;
+    viewingNotices = true;
+    panel = "read";
+    focusToken += 1;
   }
 
   function checkForUpdates() {
@@ -522,6 +537,7 @@
 
   function openReader(target: Target) {
     if (panel === "edit") leaveEdit();
+    viewingNotices = false;
     shown = target;
     editFromReader = false;
     panel = "read";
@@ -529,11 +545,13 @@
   }
 
   function beginEdit(fromReader: boolean) {
+    if (viewingNotices && fromReader) return;
     const target = fromReader ? (shown ?? currentTarget()) : currentTarget();
     if (!target) {
-      scene?.flash("Select a node or link to edit");
+      if (!viewingNotices) scene?.flash("Select a node or link to edit");
       return;
     }
+    viewingNotices = false;
     if (panel === "edit") leaveEdit();
     shown = target;
     editSeed = fieldsFor(target);
@@ -551,6 +569,17 @@
   }
 
   function handleEscape() {
+    if (viewingNotices && (panel === "read" || panel === "edit")) {
+      viewingNotices = false;
+      if (!pinned) {
+        panel = "closed";
+        focusScene();
+      } else {
+        panel = "read";
+        focusToken += 1;
+      }
+      return true;
+    }
     if (screen) {
       screen = null;
       return true;
@@ -612,6 +641,7 @@
   }
 
   function retargetPanel() {
+    if (viewingNotices) return;
     if (panel === "closed") return;
     const selection = session.selection;
     const target: Target | null =
@@ -1255,6 +1285,7 @@
   }
 
   function restoreChrome(chrome: Chrome) {
+    viewingNotices = false;
     panel = chrome.panel === "edit" ? (chrome.pinned ? "read" : "closed") : chrome.panel;
     pinned = chrome.pinned;
     shown = chrome.shown;
@@ -1290,6 +1321,7 @@
     activeId = id;
     session = next;
     panel = "closed";
+    viewingNotices = false;
     pinned = false;
     shown = null;
     editFromReader = false;
@@ -2087,7 +2119,7 @@
   }
 
   $effect(() => {
-    if (!pinned || panel !== "read") return;
+    if (!pinned || panel !== "read" || viewingNotices) return;
     hud.selectedId;
     hud.selectedLinkId;
     shown = currentTarget();
@@ -2110,6 +2142,7 @@
       openedTitle: openedTitle(),
       linkMode: linkMode !== null,
       operator: hud.operator,
+      notices: viewingNotices,
     });
   });
 
@@ -2318,6 +2351,8 @@
       }}
       onUndo={undo}
       onRedo={redo}
+      documentMarkdown={viewingNotices ? EMBEDDED_THIRD_PARTY_NOTICES : null}
+      documentTitle={NOTICES_DOCUMENT_TITLE}
     />
   {/if}
 
@@ -2364,7 +2399,7 @@
     <HelpSheet sections={shortcutSections} onClose={closeHelp} />
   {/if}
   {#if aboutOpen}
-    <AboutPanel logPath={errorLogPath} onUpdates={checkForUpdates} onClose={closeAbout} />
+    <AboutPanel logPath={errorLogPath} onUpdates={checkForUpdates} onLicences={openLicences} onClose={closeAbout} />
   {/if}
   {#if prefsOpen}
     <PreferencesPanel {preferences} onChange={updatePreferences} onClose={togglePreferences} />
@@ -2413,11 +2448,14 @@
   </footer>
 
   <nav class="tree-mirror" aria-label="Selection neighbourhood">
-  <div role="tree" aria-label={tree.accessibleName}>
+  <div role="tree" aria-label={viewingNotices ? NOTICES_TREE_LABEL : tree.accessibleName}>
+    {#if viewingNotices}
+      <div role="treeitem" aria-selected="true">{NOTICES_TREE_LABEL}</div>
+    {/if}
     {#if tree.empty}
       <div role="treeitem" aria-selected="false">{tree.summary}</div>
     {:else}
-      <div role="treeitem" aria-expanded="true" aria-selected={hud.selectedLinkId == null}>
+      <div role="treeitem" aria-expanded="true" aria-selected={hud.selectedLinkId == null && !viewingNotices}>
         <span>{tree.accessibleName}</span>
         <div role="group">
           {#each tree.groups as group (group.typeId)}
@@ -2425,7 +2463,7 @@
               <span>{group.typeName}, {group.links.length}</span>
               <div role="group">
                 {#each group.links as link (link.linkId)}
-                  <div role="treeitem" aria-expanded="true" aria-selected={hud.selectedLinkId === link.linkId}>
+                  <div role="treeitem" aria-expanded="true" aria-selected={hud.selectedLinkId === link.linkId && !viewingNotices}>
                     <span>{link.phrase}</span>
                     <div role="group">
                       <div role="treeitem" aria-selected="false">{link.other.loop ? `${link.other.title}, loop` : link.other.title}</div>

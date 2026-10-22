@@ -1,16 +1,20 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { NOTICES_PLACEHOLDER } from "./notices-placeholder.mjs";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const outPath = join(root, "THIRD-PARTY-NOTICES.md");
+const dev = process.argv.includes("--dev");
 
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 20 * 1024 * 1024,
+    shell: process.platform === "win32",
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
@@ -45,74 +49,82 @@ function table(rows) {
   return lines.join("\n");
 }
 
-const scratch = mkdtempSync(join(tmpdir(), "noosphere3d-notices-"));
-try {
-  const npmJson = join(scratch, "npm.json");
-  run("npx", [
-    "--yes",
-    "license-checker-rseidelsohn@4.4.2",
-    "--production",
-    "--json",
-    "--out",
-    npmJson,
-  ]);
-  const npmRaw = JSON.parse(readFileSync(npmJson, "utf8"));
-  if (!npmRaw || typeof npmRaw !== "object" || Array.isArray(npmRaw)) {
-    throw new Error("license-checker did not write a JSON object");
+function generate() {
+  const scratch = mkdtempSync(join(tmpdir(), "noosphere3d-notices-"));
+  try {
+    const npmJson = join(scratch, "npm.json");
+    run("npx", ["--yes", "license-checker-rseidelsohn@4.4.2", "--production", "--json", "--out", npmJson]);
+    const npmRaw = JSON.parse(readFileSync(npmJson, "utf8"));
+    if (!npmRaw || typeof npmRaw !== "object" || Array.isArray(npmRaw)) {
+      throw new Error("license-checker did not write a JSON object");
+    }
+    const npmRows = Object.entries(npmRaw)
+      .filter(([name]) => !name.startsWith("noosphere3d@"))
+      .map(([name, info]) => {
+        const at = name.lastIndexOf("@");
+        const packageName = at > 0 ? name.slice(0, at) : name;
+        const version = at > 0 ? name.slice(at + 1) : "";
+        return {
+          name: packageName,
+          version,
+          licence: licenceText(info?.licenses),
+          repository: repoText(info?.repository),
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+
+    const cargoStdout = run("cargo", ["license", "--json", "--avoid-dev-deps", "--manifest-path", join(root, "src-tauri", "Cargo.toml")]);
+    const cargoRaw = JSON.parse(cargoStdout);
+    if (!Array.isArray(cargoRaw)) throw new Error("cargo-license did not write a JSON array");
+    const cargoRows = cargoRaw
+      .filter((item) => item?.name !== "noosphere3d")
+      .map((item) => ({
+        name: item.name ?? "",
+        version: item.version ?? "",
+        licence: licenceText(item.license),
+        repository: repoText(item.repository),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+
+    return [
+      "# Third-party notices",
+      "",
+      "Generated for Noosphere 3D from npm production dependencies and Rust crates.",
+      "The licence column is the string each package declares. A missing or unusual licence is recorded as text and does not fail this generation.",
+      "This file does not accept, reject, or interpret those licences.",
+      "The app embeds this file at build time. About → View all licences opens it in the Reader, offline.",
+      "CI also uploads it as `noosphere3d-third-party-notices`.",
+      "",
+      `## npm production dependencies (${npmRows.length})`,
+      "",
+      table(npmRows),
+      "",
+      `## Rust crates (${cargoRows.length})`,
+      "",
+      table(cargoRows),
+      "",
+    ].join("\n");
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
-  const npmRows = Object.entries(npmRaw)
-    .filter(([name]) => !name.startsWith("noosphere3d@"))
-    .map(([name, info]) => {
-      const at = name.lastIndexOf("@");
-      const packageName = at > 0 ? name.slice(0, at) : name;
-      const version = at > 0 ? name.slice(at + 1) : "";
-      return {
-        name: packageName,
-        version,
-        licence: licenceText(info?.licenses),
-        repository: repoText(info?.repository),
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+}
 
-  const cargoStdout = run("cargo", [
-    "license",
-    "--json",
-    "--avoid-dev-deps",
-    "--manifest-path",
-    join(root, "src-tauri", "Cargo.toml"),
-  ]);
-  const cargoRaw = JSON.parse(cargoStdout);
-  if (!Array.isArray(cargoRaw)) throw new Error("cargo-license did not write a JSON array");
-  const cargoRows = cargoRaw
-    .filter((item) => item?.name !== "noosphere3d")
-    .map((item) => ({
-      name: item.name ?? "",
-      version: item.version ?? "",
-      licence: licenceText(item.license),
-      repository: repoText(item.repository),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+function keepExistingInventory(error) {
+  if (!existsSync(outPath)) return false;
+  const existing = readFileSync(outPath, "utf8");
+  if (!existing.includes("## npm production dependencies (") || !existing.includes("## Rust crates (")) return false;
+  console.warn(`third-party notices: generation failed (${error instanceof Error ? error.message : error}). Keeping the existing inventory.`);
+  return true;
+}
 
-  const body = [
-    "# Third-party notices",
-    "",
-    "Generated for Noosphere 3D from npm production dependencies and Rust crates.",
-    "The licence column is the string each package declares. A missing or unusual licence is recorded as text and does not fail this generation.",
-    "This file does not accept, reject, or interpret those licences.",
-    "The About dialog keeps its short fixed list. This inventory is the CI artifact `noosphere3d-third-party-notices`.",
-    "",
-    `## npm production dependencies (${npmRows.length})`,
-    "",
-    table(npmRows),
-    "",
-    `## Rust crates (${cargoRows.length})`,
-    "",
-    table(cargoRows),
-    "",
-  ].join("\n");
+try {
+  const body = generate();
   writeFileSync(outPath, body);
-  console.log(`wrote ${outPath} (${npmRows.length} npm, ${cargoRows.length} rust)`);
-} finally {
-  rmSync(scratch, { recursive: true, force: true });
+  console.log(`wrote ${outPath}`);
+} catch (error) {
+  if (!dev) throw error;
+  if (keepExistingInventory(error)) process.exit(0);
+  writeFileSync(outPath, NOTICES_PLACEHOLDER);
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(`third-party notices: generation failed (${message}). Wrote a placeholder; notices are generated at build time.`);
 }

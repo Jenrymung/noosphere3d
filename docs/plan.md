@@ -26,7 +26,7 @@
 
 ## MVP status
 
-**All build phases (0–7) are complete on Linux.** The MVP features are built and tested (112 tests, axe-core clean on the checked page, keyboard-only walkthrough passed). Linux .deb, .rpm and AppImage packages build locally. The repo is public on GitHub at [github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d) (full history on `main`), and CI passes on **Linux, Windows, macOS arm64 and macOS x64** (macOS jobs on `macos-15` and `macos-15-intel`). Artifacts are named `noosphere3d-*`. **No release has been published yet.**
+**All build phases (0–7) are complete on Linux.** The MVP features are built and tested (112 tests, axe-core clean on the checked page, keyboard-only walkthrough passed). Linux .deb, .rpm and AppImage packages build locally. The repo is public on GitHub at [github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d) (full history on `main`), and CI passes on **Linux, Windows, macOS arm64 and macOS x64** (macOS jobs on `macos-15` and `macos-15-intel`). Artifacts are named `noosphere3d-*`. **Noosphere 3D [v0.1.0](https://github.com/Jenrymung/noosphere3d/releases/tag/v0.1.0) is published as a GitHub pre-release** (tag on commit `84fe47e`). Pushing a `v*` tag runs `tauri-action` and attaches the installers: AppImage, deb, rpm, exe, msi, and dmg for macOS arm64 and x64, plus `THIRD-PARTY-NOTICES.md`. macOS builds are ad-hoc signed and not notarized; Windows builds are unsigned. Third-party notices are generated in CI (48 npm production dependencies, 465 Rust crates).
 
 **Decided:** licence is **MIT** (MIT only); app name is **Noosphere 3D** (`.mindmap3d` extension unchanged); **Apple signing: not paying**, so macOS builds ship **unsigned and not notarized**, with a note telling users how to open them (*System Settings → Privacy & Security → Open Anyway*; right-click the app → **Open** only works on older macOS versions); the project is on **GitHub** ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d)), where the CI build workflow (Windows/macOS/Linux) and GitHub Releases run.
 
@@ -34,7 +34,7 @@
 
 **GitHub setup (done):** repo created and pushed; `.github/workflows/build.yml` green on all platforms; bundle ID **`io.github.jenrymung.noosphere3d`**; *Help → Check for updates…* points at the repo's Releases page; a `.gitattributes` rule keeps `.mindmap3d` files LF.
 
-**Next steps:** real-hardware Windows/macOS checks (screen readers, OS shortcut conflicts); GPU frame-rate and label checks; Orca/WebKitGTK; CI-generated third-party notices; SignPath setup; publish the first release.
+**Next steps:** real-hardware Windows/macOS checks (screen readers, OS shortcut conflicts); GPU frame-rate and label checks; Orca/WebKitGTK; SignPath setup; **v0.1.1: full third-party notices bundled in the app and viewable from About**; then **drop the pre-release flag** once the real-hardware Windows/macOS checks, GPU checks, Orca, SignPath and the v0.1.1 notices are done.
 
 **Manual checks still to do:**
 
@@ -1529,7 +1529,7 @@ Tauri uses each OS's own WebView: **WebView2** (Chromium-based) on Windows, **WK
 | **GPL-3.0-or-later** | Anyone distributing modified versions must publish their source under the GPL | Pick this if it matters that forks stay open source. Still compatible with MIT/Apache-2.0 dependencies |
 | **MPL-2.0** | Copyleft per file: changed files must stay open, but it can be combined with other code | A middle ground |
 
-Practical points: add a single `LICENSE` file (MIT); ship third-party licence notices in the app's About box (a fixed list in the MVP; generated in CI before release); use a **DCO sign-off** for contributions rather than a CLA; publish the `.mindmap3d` JSON schema under the same licence (or CC0), so anyone can build compatible tools.
+Practical points: add a single `LICENSE` file (MIT); ship third-party licence notices (generated in CI: 48 npm production dependencies and 465 Rust crates, attached to each release as `THIRD-PARTY-NOTICES.md`; until v0.1.1 the in-app About box shows a short fixed list; v0.1.1 embeds the full `THIRD-PARTY-NOTICES.md` at build time, viewable offline in the Reader panel via a "View all licences" link in About); use a **DCO sign-off** for contributions rather than a CLA; publish the `.mindmap3d` JSON schema under the same licence (or CC0), so anyone can build compatible tools.
 
 **Distribution: GitHub Releases.**
 
@@ -1629,19 +1629,19 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 
 - **Status:** running. The repo is public on GitHub ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d)) and `.github/workflows/build.yml` runs on GitHub Actions: CI passes on **Linux, Windows, macOS arm64 and macOS x64** (macOS jobs on `macos-15` and `macos-15-intel`). It builds and runs unit tests for every push.
 - **Then check by hand on real Windows and Mac machines:** WebView2/WKWebView differences, OS shortcut clashes, file association for `.mindmap3d`, and SDF vs CSS2D labels on real GPUs (which decides the CSS2D toggle).
-- **Hard deadline:** the hands-on checks, and any fixes, must land **before the first release is published**.
+- **Hard deadline:** the hands-on checks, and any fixes, must land **before the pre-release flag is dropped** (v0.1.0 is out as a pre-release).
 
-### Phase 7 — MVP hardening and release (M) — *build-side work and GitHub setup done; no release published yet*
+### Phase 7 — MVP hardening and release (M) — *build-side work and GitHub setup done; v0.1.0 published as a pre-release*
 
-**Done (build side):** About dialog with third-party notices (fixed list); *Help → Check for updates…* opens the repo's **Releases page** (https://github.com/Jenrymung/noosphere3d/releases); `docs/mindmap3d.schema.json` published; CONTRIBUTING with DCO; local error log; `docs/pre-release-checklist.md`; licence decided (MIT); Linux .deb/.rpm/AppImage built locally; **fonts bundled locally** (no web font loading). Performance measured on a CPU-only machine (see [9.1](#91-suggested-targets)).
+**Done (build side):** [v0.1.0](https://github.com/Jenrymung/noosphere3d/releases/tag/v0.1.0) published as a GitHub **pre-release** (tag on `84fe47e`); pushing a `v*` tag runs `tauri-action` and attaches AppImage, deb, rpm, exe, msi, and dmg for macOS arm64 and x64, plus `THIRD-PARTY-NOTICES.md`; third-party notices generated in CI (48 npm production deps, 465 Rust crates); About dialog with third-party notices (fixed list in the MVP); *Help → Check for updates…* opens the repo's **Releases page** (https://github.com/Jenrymung/noosphere3d/releases); `docs/mindmap3d.schema.json` published; CONTRIBUTING with DCO; local error log; `docs/pre-release-checklist.md`; licence decided (MIT); Linux .deb/.rpm/AppImage built locally; **fonts bundled locally** (no web font loading). Performance measured on a CPU-only machine (see [9.1](#91-suggested-targets)).
 
-**Decided:** licence **MIT**; app name **Noosphere 3D**; macOS builds **unsigned, not notarized** (no Apple membership); project hosted on **GitHub** ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d); CI green on all platforms; bundle ID `io.github.jenrymung.noosphere3d`; artifacts `noosphere3d-*`). **Next steps:** real-hardware Windows/macOS checks, GPU frame-rate and label checks, Orca/WebKitGTK, CI-generated third-party notices, SignPath setup, then publish the first release. See [MVP status](#mvp-status).
+**Decided:** licence **MIT**; app name **Noosphere 3D**; macOS builds **unsigned, not notarized** (no Apple membership); project hosted on **GitHub** ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d); CI green on all platforms; bundle ID `io.github.jenrymung.noosphere3d`; artifacts `noosphere3d-*`). Current builds: macOS ad-hoc signed, not notarized; Windows unsigned. **Next steps:** real-hardware Windows/macOS checks (screen readers, OS shortcut conflicts); GPU frame-rate and label checks; Orca/WebKitGTK; SignPath setup; **v0.1.1: full third-party notices bundled in the app and viewable from About**; then **drop the pre-release flag** once the real-hardware Windows/macOS checks, GPU checks, Orca, SignPath and the v0.1.1 notices are done. See [MVP status](#mvp-status).
 
 - Performance pass against the targets in [Section 9](#9-performance).
 - **Release pipeline** (the cross-platform build matrix is now running and green): `tauri-action` building signed/unsigned installers for all three platforms; GitHub Releases with notes, SHA-256 checksums and artifact attestations; Linux AppImage/deb/rpm.
 - **Signing** per [10.1](#101-licence-distribution-and-updates): Windows via SignPath (if accepted) or unsigned with instructions; macOS **unsigned and not notarized** (decided), with instructions on how to open it.
-- **Open-source housekeeping:** licence file (**MIT, decided**), third-party notices in About, CONTRIBUTING with DCO, published JSON schema.
-- *Help → Check for updates…* opens the Releases page in the browser (no in-app network use). Points at https://github.com/Jenrymung/noosphere3d/releases (no release published yet).
+- **Open-source housekeeping:** licence file (**MIT, decided**), third-party notices in About (**Planned for v0.1.1:** embed the CI-generated `THIRD-PARTY-NOTICES.md` into the app at build time, and add a **"View all licences"** link in the About dialog that opens it in the Reader panel (works offline). Until then, About shows a short fixed list.), CONTRIBUTING with DCO, published JSON schema.
+- *Help → Check for updates…* opens the Releases page in the browser (no in-app network use). Points at https://github.com/Jenrymung/noosphere3d/releases (v0.1.0 pre-release published).
 - Error logging to a **local** log file only (local-only decision); users can choose to attach it to a bug report themselves.
 - **Exit:** MVP release.
 
@@ -1659,14 +1659,16 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 - [x] Licence decided: **MIT** (switch the drafted files to a single MIT `LICENSE`).
 - [x] Final app name chosen: **Noosphere 3D** (apply to repository, bundle id, installers; `.mindmap3d` unchanged).
 - [x] Bundle identifier set to `io.github.jenrymung.noosphere3d` (not ending in `.app`).
-- [ ] Third-party notices generated in CI (replacing the MVP's fixed list in About).
+- [x] Third-party notices generated in CI (48 npm production deps, 465 Rust crates; `THIRD-PARTY-NOTICES.md` attached to releases).
 - [x] Check-for-updates placeholder URL replaced with the real Releases page (https://github.com/Jenrymung/noosphere3d/releases).
 - [x] Signing decisions made: Windows via SignPath (if accepted); macOS **unsigned, not notarized** (see [10.1](#101-licence-distribution-and-updates)).
 - [ ] SignPath set up for Windows (or unsigned with instructions), and the macOS "how to open an unsigned app" note added to the README and release notes.
 - [x] Hosting decided: **GitHub** (CI builds + GitHub Releases).
 - [x] GitHub repo created and code pushed ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d), public, full history on `main`; `.gitattributes` keeps `.mindmap3d` LF).
 - [x] `.github/workflows/build.yml` enabled and green on Windows, macOS and Linux.
-- [ ] First release published on GitHub Releases (artifacts `noosphere3d-*`).
+- [x] First release published on GitHub Releases as a **pre-release**: [v0.1.0](https://github.com/Jenrymung/noosphere3d/releases/tag/v0.1.0) (artifacts `noosphere3d-*`).
+- [ ] Full third-party notices bundled in the app and viewable from About (v0.1.1). Must be done before the pre-release flag is dropped.
+- [ ] Pre-release flag dropped once the real-hardware Windows/macOS checks, GPU checks, Orca, SignPath and the v0.1.1 notices are done.
 - [ ] Network check: no non-localhost requests in a release build.
 
 ### v1 phases (after MVP)
@@ -1698,7 +1700,7 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 | **Users get lost in 3D** | High | Medium | Orbit-around-selection camera, no roll, frame-all, auto-follow, neighbourhood view, focus mode, camera bookmarks |
 | **Spatial arrow navigation feels random** | High for keyboard-first | Medium | One weighted scoring function (angle, screen distance, strong depth penalty, link bonus) with tunable config and fixture tests, cone limit, "go back" memory, graph-based and type-based navigation (follow, back) as a reliable fallback; user testing early |
 | **WebView differences** (esp. WebKitGTK on Linux) | Medium | Medium–High | Linux only for now; all three OSes now built in CI, real-hardware checks pending; WebGL 2 only; avoid cutting-edge web APIs |
-| **Windows and macOS not yet checked on real hardware** (CI builds and unit tests pass on all platforms) | High | Medium | Until hands-on checks are done, these stay **untested**: **WebView2 (Windows) / WKWebView (macOS) differences**, **OS shortcut clashes**, **`.mindmap3d` file association**, and **SDF labels on real GPUs**. CI already runs `.github/workflows/build.yml` on GitHub Actions; **before the first release**, smoke-test by hand on a real Windows PC and Mac. Meanwhile, avoid Linux-only assumptions (paths, shortcuts, WebKitGTK quirks) |
+| **Windows and macOS not yet checked on real hardware** (CI builds and unit tests pass on all platforms) | High | Medium | Until hands-on checks are done, these stay **untested**: **WebView2 (Windows) / WKWebView (macOS) differences**, **OS shortcut clashes**, **`.mindmap3d` file association**, and **SDF labels on real GPUs**. CI already runs `.github/workflows/build.yml` on GitHub Actions; **before dropping the pre-release flag**, smoke-test by hand on a real Windows PC and Mac. Meanwhile, avoid Linux-only assumptions (paths, shortcuts, WebKitGTK quirks) |
 | **SDF label decision based on limited hardware** | Medium | Medium | CSS2D toggle kept until tested on real GPUs (integrated and discrete, all three OSes) |
 | **Keyboard conflicts** (OS shortcuts, non-US layouts, IME) | Medium | High | Mod-key abstraction, alternatives for symbol keys, layout-aware letter/digit shortcuts and an automated OS-clash test (both built), remappable keymap (v1), per-OS testing on real hardware (pending) |
 | **DOM label performance** | Medium | Medium (if CSS2D) | SDF labels, label cap, culling |
@@ -1780,4 +1782,4 @@ MVP is about **15–25 units** across Phases 0–7 (typed links add roughly 1–
 - Store maps as **versioned, git-friendly JSON**, **locally only**. **Manual save is the default**, with optional autosave-to-file in Preferences, and atomic writes, backups and a crash-recovery file in both modes.
 - Design **accessibility in from the start** (ARIA mirror, neighbourhood view, reduced motion, keyboard paths for every mouse operator, remappable keys).
 - **Latest decisions:** `.mindmap3d` files with an id-keyed, order-keyed, **collaboration-ready format**; **tabs** with per-tab undo and save state; **Blender-style mouse operators** (G grab, L link, V view; S scale in v1); **link labels** showing title plus type name; **waypoints move with the selection**; images in a **resources folder** (v1); self-links allowed (creating them comes later); Vim keys later; open source under **MIT** (decided), named **Noosphere 3D**, hosted on **GitHub** and shipped on **GitHub Releases** (macOS builds unsigned and not notarized), with **no in-app network use in MVP** and an **opt-in update check** in v1.
-- All open questions are answered; none remain ([12.2](#122-open-questions-for-the-creator)). GitHub setup is done ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d), CI green on all platforms). Next: real-hardware Windows/macOS checks, GPU checks, Orca/WebKitGTK, CI-generated notices, SignPath setup, and the first release.
+- All open questions are answered; none remain ([12.2](#122-open-questions-for-the-creator)). GitHub setup is done ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d), CI green on all platforms). Noosphere 3D [v0.1.0](https://github.com/Jenrymung/noosphere3d/releases/tag/v0.1.0) is out as a GitHub pre-release with installers for all platforms and CI-generated third-party notices. Next: real-hardware Windows/macOS checks, GPU checks, Orca/WebKitGTK and SignPath setup, then drop the pre-release flag.

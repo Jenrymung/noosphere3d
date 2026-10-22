@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { EMBEDDED_THIRD_PARTY_NOTICES, NOTICES_TREE_LABEL, noticesAreGeneratedInventory } from "./embeddedNotices";
 import { APP_VERSION, LICENCE_STATUS, THIRD_PARTY_NOTICES } from "./notices";
 import { RELEASES_PAGE_URL } from "./releases";
 import { formatErrorLine } from "../io/errorLog";
@@ -10,6 +11,16 @@ describe("about and updates", () => {
     expect(THIRD_PARTY_NOTICES.some((item) => item.name === "DOMPurify" && item.licence.includes("Apache-2.0"))).toBe(true);
     expect(THIRD_PARTY_NOTICES.some((item) => item.name === "Three.js")).toBe(true);
     expect(THIRD_PARTY_NOTICES.some((item) => item.name === "Tauri" && item.licence === "MIT OR Apache-2.0")).toBe(true);
+  });
+
+  it("embeds a non-empty notice inventory in a CI build", () => {
+    expect(EMBEDDED_THIRD_PARTY_NOTICES.trim().length).toBeGreaterThan(0);
+    expect(NOTICES_TREE_LABEL).toContain("Reader");
+    expect(noticesAreGeneratedInventory("# Third-party notices\n\n## npm production dependencies (1)\n\n## Rust crates (1)\n")).toBe(true);
+    expect(noticesAreGeneratedInventory("These notices are generated at build time.")).toBe(false);
+    if (process.env.CI) {
+      expect(noticesAreGeneratedInventory(EMBEDDED_THIRD_PARTY_NOTICES)).toBe(true);
+    }
   });
 
   it("points Check for updates at the GitHub releases page", () => {

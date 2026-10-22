@@ -19,6 +19,15 @@ describe("reader markdown", () => {
     expect(html).not.toContain("<img");
   });
 
+  it("renders a licence table", () => {
+    const html = renderMarkdown("| Name | Licence |\n| --- | --- |\n| Tauri | MIT OR Apache-2.0 |\n| pipe | a \\| b |");
+    expect(html).toContain("<table>");
+    expect(html).toContain("<th>Name</th>");
+    expect(html).toContain("<td>Tauri</td>");
+    expect(html).toContain("a | b");
+    expect(html).not.toContain("<script");
+  });
+
   it("marks task lists and opens links outside the app", () => {
     const html = renderMarkdown("- [ ] inspect culverts\n- [x] map the drains\n\nSee the [report](https://example.com/rain).");
     expect(html).toContain("☐");
