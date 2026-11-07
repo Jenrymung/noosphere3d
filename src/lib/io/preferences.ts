@@ -2,6 +2,16 @@ export type SaveMode = "manual" | "autosave";
 export type BackupLocation = "app-data" | "beside";
 export type ThemePreference = "system" | "dark" | "light";
 export type MotionPreference = "system" | "on" | "off";
+export type BuiltinMapId = "sample" | "stress";
+
+/** A Maps entry. Removing one drops it from this list and does not delete a file. */
+export interface FavouriteMap {
+  id: string;
+  label: string;
+  kind: "builtin" | "file";
+  builtin?: BuiltinMapId;
+  path?: string;
+}
 
 /** App settings. They live on this computer, not in the map file. */
 export interface Preferences {
@@ -19,6 +29,8 @@ export interface Preferences {
   dimLonely: boolean;
   skipPicker: boolean;
   showAxisGizmo: boolean;
+  /** Missing on old preference files. An empty array means the owner removed every entry. */
+  favouriteMaps: FavouriteMap[];
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -35,7 +47,57 @@ export const DEFAULT_PREFERENCES: Preferences = {
   dimLonely: false,
   skipPicker: false,
   showAxisGizmo: true,
+  favouriteMaps: [
+    { id: "builtin-stress", label: "2,304 nodes", kind: "builtin", builtin: "stress" },
+    { id: "builtin-sample", label: "Flooding sample", kind: "builtin", builtin: "sample" },
+  ],
 };
+
+export function addFavourite(list: readonly FavouriteMap[], entry: FavouriteMap): { list: FavouriteMap[]; added: boolean } {
+  const path = entry.path?.trim();
+  if (list.some((item) => item.id === entry.id || (path && item.path === path))) return { list: [...list], added: false };
+  return { list: [...list, entry], added: true };
+}
+
+export function removeFavourite(list: readonly FavouriteMap[], id: string): FavouriteMap[] {
+  return list.filter((item) => item.id !== id);
+}
+
+function favouriteStem(path: string): string {
+  const base = path.replace(/\\/g, "/").split("/").pop() ?? path;
+  return base.replace(/\.mindmap3d$/i, "").trim() || path;
+}
+
+function normalizeFavourites(input: unknown): FavouriteMap[] {
+  if (!Array.isArray(input)) return DEFAULT_PREFERENCES.favouriteMaps.map((item) => ({ ...item }));
+  const out: FavouriteMap[] = [];
+  const seen = new Set<string>();
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Partial<FavouriteMap>;
+    if (raw.kind === "builtin" && (raw.builtin === "sample" || raw.builtin === "stress")) {
+      const id = raw.builtin === "sample" ? "builtin-sample" : "builtin-stress";
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        id,
+        label: raw.builtin === "sample" ? "Flooding sample" : "2,304 nodes",
+        kind: "builtin",
+        builtin: raw.builtin,
+      });
+      continue;
+    }
+    if (raw.kind === "file" && typeof raw.path === "string" && raw.path.trim()) {
+      const path = raw.path.trim();
+      const id = `file:${path}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const label = typeof raw.label === "string" && raw.label.trim() ? raw.label.trim() : favouriteStem(path);
+      out.push({ id, label, kind: "file", path });
+    }
+  }
+  return out;
+}
 
 const LIMITS = {
   autosaveDelayMs: [200, 60_000],
@@ -74,5 +136,6 @@ export function normalizePreferences(input: unknown): Preferences {
     dimLonely: raw.dimLonely === true,
     skipPicker: raw.skipPicker === true,
     showAxisGizmo: raw.showAxisGizmo !== false,
+    favouriteMaps: normalizeFavourites(raw.favouriteMaps),
   };
 }

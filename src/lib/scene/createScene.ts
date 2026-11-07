@@ -16,6 +16,8 @@ import { cameraFollowAction, cameraMoveMs } from "../input/cameraFollow";
 import { cycleLink, visibleLinkIds } from "../input/cycle";
 import { linkOriginOnSelect, stepEscape } from "../input/escape";
 import { GRAB_SNAP, GrabOperator } from "../input/grab";
+import { grabPositionOnPlane, intersectRayPlane } from "../input/grabPlane";
+import { nextTitleScope, type TitleScope } from "./titleScope";
 import { NavHistory } from "../input/navHistory";
 import {
   chooseDepthTarget,
@@ -47,6 +49,7 @@ export interface HudSnapshot {
   links: number;
   visibleLabels: number;
   labelMode: LabelMode;
+  titleScope: TitleScope;
   density: LabelDensity;
   selectedId: string | null;
   selectedLinkId: string | null;
@@ -58,6 +61,8 @@ export interface HudSnapshot {
   status: string;
   prepMs: number | null;
   operator: "" | "view" | "grab";
+  grabNodeId: string | null;
+  grabPosition: Vec3 | null;
 }
 
 export interface BenchRow {
@@ -108,6 +113,8 @@ export interface PlacementContext {
 
 export interface MindMapScene {
   setLabelMode(mode: LabelMode): void;
+  setTitleScope(scope: TitleScope): void;
+  cycleTitleScope(): void;
   setDensity(density: LabelDensity): void;
   load(doc: MapDocument, options?: LoadOptions): void;
   sync(doc: MapDocument, kind: "text" | "structure" | "links"): void;
@@ -183,6 +190,8 @@ export function createMindMapScene(
 
   const cssRenderer = new CSS2DRenderer();
   cssRenderer.domElement.className = "css2d-layer";
+  // Distance-based z-index would paint titles over the editor and other panels.
+  cssRenderer.sortObjects = false;
   host.appendChild(cssRenderer.domElement);
 
   let showAxisGizmo = true;
@@ -240,6 +249,9 @@ export function createMindMapScene(
   const linkObjects: THREE.Object3D[] = [];
   let batch: BatchedText | null = null;
   let labelMode: LabelMode = "sdf";
+  let titleScope: TitleScope = "nodes";
+  const raycaster = new THREE.Raycaster();
+  let grabAnchorHit: { x: number; y: number; z: number } | null = null;
   let density: LabelDensity = "nearby";
   let selectedId: string | null = null;
   let neighbourIds = new Set<string>();
@@ -357,6 +369,7 @@ export function createMindMapScene(
     if (viewOperator) endView(false);
     grab = null;
     grabId = null;
+    grabAnchorHit = null;
     controls.enabled = true;
     currentDoc = next;
     linkIndex = LinkIndex.from(next);
@@ -1083,8 +1096,8 @@ export function createMindMapScene(
       }
     }
     visibleLabels = keep.size;
-    const showSdf = labelMode === "sdf";
-    const showCss = labelMode === "css2d";
+    const showSdf = titleScope !== "off" && labelMode === "sdf";
+    const showCss = titleScope !== "off" && labelMode === "css2d";
     cssRenderer.domElement.style.display = showCss ? "" : "none";
     if (batch) batch.visible = showSdf && density === "all";
     const worldPerPixelAt = (distance: number) =>
@@ -1126,15 +1139,25 @@ export function createMindMapScene(
       const type = makeLinkText(0.14 * labelUserScale);
       scene.add(title);
       scene.add(type);
-      linkLabelSlots.push({ title, type, linkId: null, titleStr: "", typeStr: "" });
+      const card = document.createElement("div");
+      card.className = "label-card";
+      const anchor = document.createElement("div");
+      anchor.className = "label-anchor";
+      anchor.appendChild(card);
+      const css = new CSS2DObject(anchor);
+      css.center.set(0.5, 0.5);
+      css.visible = false;
+      scene.add(css);
+      linkLabelSlots.push({ title, type, css, card, linkId: null, titleStr: "", typeStr: "" });
     }
   }
 
   function updateLinkLabels(height: number) {
     ensureLinkLabels();
-    const show = labelMode !== "off";
+    const show = titleScope === "nodes-and-links" && labelMode !== "off";
     camUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
     const ranked = linkViews
+      .filter((link) => link.title)
       .map((link) => ({ link, distance: camera.position.distanceTo(link.label) }))
       .sort((a, b) => {
         if (a.link.id === selectedLinkId) return -1;
@@ -1153,49 +1176,36 @@ export function createMindMapScene(
       (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * distance) / height;
     linkLabelSlots.forEach((slot, index) => {
       const item = chosen[index];
-      if (!item) {
+      if (!item || !item.link.title) {
         slot.title.visible = false;
         slot.type.visible = false;
+        slot.css.visible = false;
         slot.linkId = null;
         return;
       }
       const selected = item.link.id === selectedLinkId;
-      const detail = selected || item.distance < 26 ? "both" : item.distance < 48 ? "one" : "none";
-      const showTitle = detail !== "none" && item.link.title != null && (detail === "both" || detail === "one");
-      const showType = detail === "both" || (detail === "one" && item.link.title == null) || (selected && item.link.title == null);
       const pixels = labelPixelSize(item.distance);
       const scale = (pixels * worldPerPixelAt(Math.max(item.distance, 0.5))) / BASE_FONT;
-      const lift = BASE_FONT * scale * 0.62;
+      const text = wrapTitle(item.link.title);
       slot.linkId = item.link.id;
-      slot.title.visible = showTitle;
-      slot.type.visible = showType;
-      if (showTitle && item.link.title) {
-        const text = wrapTitle(item.link.title, 1, 32);
-        if (slot.titleStr !== text) {
-          slot.title.text = text;
-          slot.titleStr = text;
-        }
-        slot.title.color = selected ? 0xfff6dc : 0xf7f1e4;
-        slot.title.fillOpacity = item.link.dimmed ? 0.45 : 1;
-        slot.title.position.copy(item.link.label);
-        if (showType) slot.title.position.addScaledVector(camUp, lift);
-        slot.title.quaternion.copy(camera.quaternion);
-        slot.title.scale.setScalar(scale);
-        slot.title.updateMatrix();
+      slot.type.visible = false;
+      slot.title.visible = labelMode === "sdf";
+      slot.css.visible = labelMode === "css2d";
+      slot.title.fontSize = BASE_FONT * labelUserScale;
+      if (slot.titleStr !== text) {
+        slot.title.text = text;
+        slot.titleStr = text;
+        slot.card.textContent = text;
       }
-      if (showType) {
-        if (slot.typeStr !== item.link.typeLine) {
-          slot.type.text = item.link.typeLine;
-          slot.typeStr = item.link.typeLine;
-        }
-        slot.type.color = item.link.colorHex;
-        slot.type.fillOpacity = item.link.dimmed ? 0.45 : 1;
-        slot.type.position.copy(item.link.label);
-        if (showTitle) slot.type.position.addScaledVector(camUp, -lift * 0.85);
-        slot.type.quaternion.copy(camera.quaternion);
-        slot.type.scale.setScalar(scale);
-        slot.type.updateMatrix();
-      }
+      slot.title.color = selected ? 0xfff6dc : 0xf4f7fb;
+      slot.title.fillOpacity = item.link.dimmed ? 0.45 : 1;
+      slot.title.position.copy(item.link.label);
+      slot.title.quaternion.copy(camera.quaternion);
+      slot.title.scale.setScalar(scale);
+      slot.title.updateMatrix();
+      slot.css.position.copy(item.link.label);
+      slot.card.style.fontSize = `${Math.round(pixels)}px`;
+      slot.card.classList.toggle("is-selected", selected);
     });
   }
 
@@ -1221,7 +1231,7 @@ export function createMindMapScene(
       if (iconDist < 22 * Math.max(node.scale, 0.8)) consider({ kind: "node-icon", id: node.id, dist: iconDist });
     }
     for (const slot of linkLabelSlots) {
-      if (!slot.linkId || (!slot.title.visible && !slot.type.visible)) continue;
+      if (!slot.linkId || (!slot.title.visible && !slot.css.visible && !slot.type.visible)) continue;
       const anchor = slot.title.visible ? slot.title.position : slot.type.position;
       const screen = projectToScreen(anchor, rect);
       if (!screen) continue;
@@ -1418,7 +1428,7 @@ export function createMindMapScene(
     } else if (event.code === "Backquote" && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       if (event.shiftKey) setDensity(density === "all" ? "nearby" : "all");
-      else setLabelMode(labelMode === "sdf" ? "css2d" : labelMode === "css2d" ? "off" : "sdf");
+      else cycleTitleScope();
     } else if (event.code === "KeyM" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) onToggleMap();
     requestRender();
   }
@@ -1522,9 +1532,22 @@ export function createMindMapScene(
 
   function setLabelMode(mode: LabelMode) {
     labelMode = mode;
+    if (mode !== "off" && titleScope === "off") titleScope = "nodes";
     status = mode === "off" ? "Icons only" : mode === "sdf" ? "SDF labels" : "CSS2D labels";
     publish();
     requestRender();
+  }
+
+  function setTitleScope(scope: TitleScope) {
+    titleScope = scope;
+    if (scope !== "off" && labelMode === "off") labelMode = "sdf";
+    status = scope === "off" ? "Titles off" : scope === "nodes" ? "Node titles" : "Node and link titles";
+    publish();
+    requestRender();
+  }
+
+  function cycleTitleScope() {
+    setTitleScope(nextTitleScope(titleScope));
   }
 
   function setDensity(next: LabelDensity) {
@@ -1551,6 +1574,7 @@ export function createMindMapScene(
       links: Object.keys(currentDoc.links).length,
       visibleLabels,
       labelMode,
+      titleScope,
       density,
       selectedId,
       selectedLinkId,
@@ -1562,6 +1586,8 @@ export function createMindMapScene(
       status,
       prepMs,
       operator: grab ? "grab" : viewOperator ? "view" : "",
+      grabNodeId: grabId,
+      grabPosition: grab ? grab.position() : null,
     };
   }
 
@@ -1668,7 +1694,8 @@ export function createMindMapScene(
     updateLabels();
     renderer.render(scene, camera);
     renderAxisGizmo();
-    if (labelMode === "css2d") cssRenderer.render(scene, camera);
+    if (labelMode === "css2d" && titleScope !== "off") cssRenderer.render(scene, camera);
+    keepLabelsUnderUi();
     if (now - hudTimer > 250) {
       hudTimer = now;
       publish();
@@ -1731,8 +1758,7 @@ export function createMindMapScene(
       return;
     }
     if (grab) {
-      if (event.movementX === 0 && event.movementY === 0) return;
-      moveGrabByMouse(event.movementX, event.movementY, event.shiftKey, event.ctrlKey || event.metaKey);
+      moveGrabToPointer(event.clientX, event.clientY, event.shiftKey, event.ctrlKey || event.metaKey);
       return;
     }
     if (viewOperator) {
@@ -1911,7 +1937,7 @@ export function createMindMapScene(
     labelUserScale = Math.min(1.8, Math.max(0.7, scale));
     for (const node of nodes) node.text.fontSize = BASE_FONT * labelUserScale;
     for (const slot of linkLabelSlots) {
-      slot.title.fontSize = 0.2 * labelUserScale;
+      slot.title.fontSize = BASE_FONT * labelUserScale;
       slot.type.fontSize = 0.14 * labelUserScale;
     }
     applySelectionVisual();
@@ -2151,6 +2177,7 @@ export function createMindMapScene(
     zeroControlDeltas();
     grabId = selectedId;
     grab = new GrabOperator(currentDoc.nodes[selectedId].position);
+    grabAnchorHit = null;
     controls.enabled = false;
     status = grabStatus();
     publish();
@@ -2165,6 +2192,7 @@ export function createMindMapScene(
     const moved = Math.hypot(next.x - origin.x, next.y - origin.y, next.z - origin.z) > 1e-4;
     grab = null;
     grabId = null;
+    grabAnchorHit = null;
     controls.enabled = true;
     zeroControlDeltas();
     if (confirm && moved) hooks.commitMove?.(id, next);
@@ -2207,21 +2235,42 @@ export function createMindMapScene(
     previewGrab();
   }
 
-  function moveGrabByMouse(dx: number, dy: number, precision: boolean, snap: boolean) {
+  function moveGrabToPointer(clientX: number, clientY: number, precision: boolean, snap: boolean) {
     if (!grab || !grabId) return;
-    const { right, up } = cameraAxes();
-    const node = currentDoc.nodes[grabId];
-    const distance = Math.max(camera.position.distanceTo(node ? asVec(node.position) : controls.target), 2);
-    const scale = distance * 0.0015;
-    grab.add(
-      {
-        x: (right.x * dx - up.x * dy) * scale,
-        y: (right.y * dx - up.y * dy) * scale,
-        z: (right.z * dx - up.z * dy) * scale,
-      },
-      { precision, snap: snap ? GRAB_SNAP : null },
+    const { look } = cameraAxes();
+    const hit = pointerOnGrabPlane(clientX, clientY, look);
+    if (!hit) return;
+    if (!grabAnchorHit) grabAnchorHit = { x: hit.x, y: hit.y, z: hit.z };
+    const next = grabPositionOnPlane({
+      origin: grab.origin,
+      anchorHit: grabAnchorHit,
+      currentHit: hit,
+      precision,
+    });
+    grab.setOffset(
+      { x: next.x - grab.origin.x, y: next.y - grab.origin.y, z: next.z - grab.origin.z },
+      { snap: snap ? GRAB_SNAP : null },
     );
     previewGrab();
+  }
+
+  function pointerOnGrabPlane(clientX: number, clientY: number, look: THREE.Vector3): { x: number; y: number; z: number } | null {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1 || !grab) return null;
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    return intersectRayPlane(
+      { x: raycaster.ray.origin.x, y: raycaster.ray.origin.y, z: raycaster.ray.origin.z },
+      { x: raycaster.ray.direction.x, y: raycaster.ray.direction.y, z: raycaster.ray.direction.z },
+      grab.origin,
+      { x: look.x, y: look.y, z: look.z },
+    );
+  }
+
+  function keepLabelsUnderUi() {
+    const layer = cssRenderer.domElement;
+    layer.style.zIndex = "0";
+    for (const node of layer.querySelectorAll<HTMLElement>("*")) node.style.zIndex = "0";
   }
 
   resize();
@@ -2239,6 +2288,8 @@ export function createMindMapScene(
 
   return {
     setLabelMode,
+    setTitleScope,
+    cycleTitleScope,
     setDensity,
     load,
     sync,
@@ -2283,6 +2334,8 @@ export function createMindMapScene(
       for (const slot of linkLabelSlots) {
         slot.title.dispose();
         slot.type.dispose();
+        scene.remove(slot.css);
+        slot.css.element.remove();
       }
       if (rubber) {
         scene.remove(rubber);
@@ -2314,6 +2367,8 @@ interface LinkView {
 interface LinkLabelSlot {
   title: Text;
   type: Text;
+  css: CSS2DObject;
+  card: HTMLDivElement;
   linkId: string | null;
   titleStr: string;
   typeStr: string;

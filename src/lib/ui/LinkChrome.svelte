@@ -435,7 +435,7 @@
 
 <style>
   :global(html[data-theme="light"]) .chrome {
-    background: rgba(247, 244, 238, 0.97);
+    background: #f7f4ee;
     color: #1c2430;
     border-color: rgba(28, 36, 48, 0.14);
   }
@@ -452,7 +452,7 @@
     overflow: auto;
     padding: 14px;
     border-radius: 12px;
-    background: rgba(12, 18, 28, 0.94);
+    background: #0c121c;
     border: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
   }

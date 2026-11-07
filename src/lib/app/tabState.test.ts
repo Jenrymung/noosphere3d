@@ -11,6 +11,8 @@ import {
   promptFor,
   resolveTheme,
   statusFor,
+  fileStem,
+  mapDisplayName,
   windowTitle,
 } from "./tabState";
 
@@ -45,6 +47,12 @@ describe("tab save state", () => {
     expect(ensureSuffix("Flood.mindmap3d")).toBe("Flood.mindmap3d");
     expect(windowTitle("●", "Flood")).toBe("● Flood — Noosphere 3D");
     expect(windowTitle("", "Flood")).toBe("Flood — Noosphere 3D");
+    expect(fileStem("C:\\maps\\notes.mindmap3d")).toBe("notes");
+    expect(fileStem("/maps/Urban flooding.mindmap3d")).toBe("Urban flooding");
+    expect(mapDisplayName("Urban flooding", "/maps/city.mindmap3d")).toBe("city");
+    expect(mapDisplayName("Urban flooding", null)).toBe("Urban flooding");
+    expect(mapDisplayName("", null)).toBe("Untitled map");
+    expect(mapDisplayName(undefined, "   ")).toBe("Untitled map");
     expect(resolveTheme("system", true)).toBe("dark");
     expect(resolveTheme("light", true)).toBe("light");
   });

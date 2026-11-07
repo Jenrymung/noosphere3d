@@ -53,7 +53,7 @@
     align-items: center;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 999px;
-    background: rgba(8, 12, 18, 0.55);
+    background: #0c121c;
   }
 
   .tab.on {
