@@ -34,7 +34,7 @@
 
 **GitHub setup (done):** repo created and pushed; `.github/workflows/build.yml` green on all platforms; bundle ID **`io.github.jenrymung.noosphere3d`**; *Help → Check for updates…* points at the repo's Releases page; a `.gitattributes` rule keeps `.mindmap3d` files LF.
 
-**Next steps:** real-hardware Windows/macOS checks (screen readers, OS shortcut conflicts); GPU frame-rate and label checks; Orca/WebKitGTK; SignPath setup; **v0.1.1: full third-party notices bundled in the app and viewable from About**; then **drop the pre-release flag** once the real-hardware Windows/macOS checks, GPU checks, Orca, SignPath and the v0.1.1 notices are done.
+**Next steps:** real-hardware Windows/macOS checks (screen readers, OS shortcut conflicts); GPU frame-rate and label checks; Orca/WebKitGTK; SignPath setup; full third-party notices bundled in the app and viewable from About are done on `main` (commit `c189b88`, CI green; not yet tagged, v0.1.1 waits on the owner's go-ahead); then **drop the pre-release flag** once the real-hardware Windows/macOS checks, GPU checks, Orca, SignPath and the v0.1.1 notices are done.
 
 **Manual checks still to do:**
 
@@ -1529,7 +1529,7 @@ Tauri uses each OS's own WebView: **WebView2** (Chromium-based) on Windows, **WK
 | **GPL-3.0-or-later** | Anyone distributing modified versions must publish their source under the GPL | Pick this if it matters that forks stay open source. Still compatible with MIT/Apache-2.0 dependencies |
 | **MPL-2.0** | Copyleft per file: changed files must stay open, but it can be combined with other code | A middle ground |
 
-Practical points: add a single `LICENSE` file (MIT); ship third-party licence notices (generated in CI: 48 npm production dependencies and 465 Rust crates, attached to each release as `THIRD-PARTY-NOTICES.md`; until v0.1.1 the in-app About box shows a short fixed list; v0.1.1 embeds the full `THIRD-PARTY-NOTICES.md` at build time, viewable offline in the Reader panel via a "View all licences" link in About); use a **DCO sign-off** for contributions rather than a CLA; publish the `.mindmap3d` JSON schema under the same licence (or CC0), so anyone can build compatible tools.
+Practical points: add a single `LICENSE` file (MIT); ship third-party licence notices (generated in CI: 48 npm production dependencies and 465 Rust crates, attached to each release as `THIRD-PARTY-NOTICES.md`; bundled in the app, done on `main` (commit `c189b88`, CI green; not yet tagged, v0.1.1 waits on the owner's go-ahead): `npm run build` generates `THIRD-PARTY-NOTICES.md`, a Vite plugin embeds it for offline use, and About keeps the short list plus a **"View all licences"** button that opens the full list in the Reader; production builds fail if the notices can't be generated); use a **DCO sign-off** for contributions rather than a CLA; publish the `.mindmap3d` JSON schema under the same licence (or CC0), so anyone can build compatible tools.
 
 **Distribution: GitHub Releases.**
 
@@ -1635,12 +1635,12 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 
 **Done (build side):** [v0.1.0](https://github.com/Jenrymung/noosphere3d/releases/tag/v0.1.0) published as a GitHub **pre-release** (tag on `84fe47e`); pushing a `v*` tag runs `tauri-action` and attaches AppImage, deb, rpm, exe, msi, and dmg for macOS arm64 and x64, plus `THIRD-PARTY-NOTICES.md`; third-party notices generated in CI (48 npm production deps, 465 Rust crates); About dialog with third-party notices (fixed list in the MVP); *Help → Check for updates…* opens the repo's **Releases page** (https://github.com/Jenrymung/noosphere3d/releases); `docs/mindmap3d.schema.json` published; CONTRIBUTING with DCO; local error log; `docs/pre-release-checklist.md`; licence decided (MIT); Linux .deb/.rpm/AppImage built locally; **fonts bundled locally** (no web font loading). Performance measured on a CPU-only machine (see [9.1](#91-suggested-targets)).
 
-**Decided:** licence **MIT**; app name **Noosphere 3D**; macOS builds **unsigned, not notarized** (no Apple membership); project hosted on **GitHub** ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d); CI green on all platforms; bundle ID `io.github.jenrymung.noosphere3d`; artifacts `noosphere3d-*`). Current builds: macOS ad-hoc signed, not notarized; Windows unsigned. **Next steps:** real-hardware Windows/macOS checks (screen readers, OS shortcut conflicts); GPU frame-rate and label checks; Orca/WebKitGTK; SignPath setup; **v0.1.1: full third-party notices bundled in the app and viewable from About**; then **drop the pre-release flag** once the real-hardware Windows/macOS checks, GPU checks, Orca, SignPath and the v0.1.1 notices are done. See [MVP status](#mvp-status).
+**Decided:** licence **MIT**; app name **Noosphere 3D**; macOS builds **unsigned, not notarized** (no Apple membership); project hosted on **GitHub** ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d); CI green on all platforms; bundle ID `io.github.jenrymung.noosphere3d`; artifacts `noosphere3d-*`). Current builds: macOS ad-hoc signed, not notarized; Windows unsigned. **Next steps:** real-hardware Windows/macOS checks (screen readers, OS shortcut conflicts); GPU frame-rate and label checks; Orca/WebKitGTK; SignPath setup; full third-party notices bundled in the app and viewable from About are done on `main` (commit `c189b88`, CI green; not yet tagged, v0.1.1 waits on the owner's go-ahead); then **drop the pre-release flag** once the real-hardware Windows/macOS checks, GPU checks, Orca, SignPath and the v0.1.1 notices are done. See [MVP status](#mvp-status).
 
 - Performance pass against the targets in [Section 9](#9-performance).
 - **Release pipeline** (the cross-platform build matrix is now running and green): `tauri-action` building signed/unsigned installers for all three platforms; GitHub Releases with notes, SHA-256 checksums and artifact attestations; Linux AppImage/deb/rpm.
 - **Signing** per [10.1](#101-licence-distribution-and-updates): Windows via SignPath (if accepted) or unsigned with instructions; macOS **unsigned and not notarized** (decided), with instructions on how to open it.
-- **Open-source housekeeping:** licence file (**MIT, decided**), third-party notices in About (**Planned for v0.1.1:** embed the CI-generated `THIRD-PARTY-NOTICES.md` into the app at build time, and add a **"View all licences"** link in the About dialog that opens it in the Reader panel (works offline). Until then, About shows a short fixed list.), CONTRIBUTING with DCO, published JSON schema.
+- **Open-source housekeeping:** licence file (**MIT, decided**), third-party notices in About (**Bundled notices done on `main` (commit `c189b88`, CI green; not yet tagged, v0.1.1 waits on the owner's go-ahead):** `npm run build` generates `THIRD-PARTY-NOTICES.md`, a Vite plugin embeds it for offline use, and About keeps the short list and adds a **"View all licences"** button that opens the full list in the Reader. Production builds fail if the notices can't be generated.), CONTRIBUTING with DCO, published JSON schema.
 - *Help → Check for updates…* opens the Releases page in the browser (no in-app network use). Points at https://github.com/Jenrymung/noosphere3d/releases (v0.1.0 pre-release published).
 - Error logging to a **local** log file only (local-only decision); users can choose to attach it to a bug report themselves.
 - **Exit:** MVP release.
@@ -1667,7 +1667,7 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 - [x] GitHub repo created and code pushed ([github.com/Jenrymung/noosphere3d](https://github.com/Jenrymung/noosphere3d), public, full history on `main`; `.gitattributes` keeps `.mindmap3d` LF).
 - [x] `.github/workflows/build.yml` enabled and green on Windows, macOS and Linux.
 - [x] First release published on GitHub Releases as a **pre-release**: [v0.1.0](https://github.com/Jenrymung/noosphere3d/releases/tag/v0.1.0) (artifacts `noosphere3d-*`).
-- [ ] Full third-party notices bundled in the app and viewable from About (v0.1.1). Must be done before the pre-release flag is dropped.
+- [x] Full third-party notices bundled in the app and viewable from About (v0.1.1): done on `main` (commit `c189b88`, CI green; not yet tagged, v0.1.1 waits on the owner's go-ahead).
 - [ ] Pre-release flag dropped once the real-hardware Windows/macOS checks, GPU checks, Orca, SignPath and the v0.1.1 notices are done.
 - [ ] Network check: no non-localhost requests in a release build.
 
@@ -1683,6 +1683,39 @@ No dates. Effort is relative: **S** ≈ 1 unit, **M** ≈ 2–3 units, **L** ≈
 | v1-C | Multi-select (nodes and waypoints, Shift+click), group grab carrying internal and selected waypoints, **S** scale operator, styling, themes incl. high contrast | M |
 | v1-D | Search highlighting/filter, camera bookmarks (Mod+Alt+1…9), remappable keymap, numeric input for operators | M |
 | v1-E | Export (PNG, Markdown outline), import (Markdown outline), recent files, session restore, external-change watcher, **opt-in update check** | M |
+
+### Feedback round 1 (from the owner's own use, 2026-11-07)
+
+The owner sent a list after using v0.1.0. **Order:** bug fixes first, then wave 1. **After each wave the build goes to the owner to test** before the next wave starts.
+
+**Bug fixes (do first)**
+
+1. **File name not picked up.** When a `.mindmap3d` file is opened or saved, its file name (without the extension) should become the name of the current map: tab label, window title and Maps list. A map that hasn't been saved keeps "Untitled".
+2. **Floating titles drawn over the UI.** With titles turned on, node titles currently draw on top of panels such as the Markdown editor. Titles belong to the 3D scene and must always sit **under** every UI panel (editor, Reader, palettes, legend, status bar, dialogs), whatever their position on screen.
+3. **Dragging nodes is far too slow.** The owner has to sweep the mouse across the screen 4–10 times to move a node. A grabbed node should follow the cursor **1:1** on the plane facing the camera at the node's depth (unproject the cursor at that depth; don't apply a fixed small speed factor). Shift keeps fine precision for small moves. Keyboard nudges are unchanged.
+
+**Wave 1 (then hand to the owner for testing)**
+
+| Feature | What it does |
+|---|---|
+| **Favourite maps** | The Maps section currently lists a few pre-made maps. The owner can **add** any map (the current one or a file) to that list and **remove** any entry, pre-made ones included. The list is saved in preferences and survives restarts. Removing an entry never deletes the file. Fully keyboard-operable. |
+| **Node coordinates** | Below the pinned area of the Markdown editor, show the selected node's **X, Y, Z** position as three editable number fields. Typing a value (or Up/Down to step, Shift for bigger steps) moves the node there. Each change is one undo step and marks the map unsaved. The fields update live when the node is moved another way. |
+| **Link titles in the scene** | Links get the same floating title as nodes, drawn at the link's midpoint (or the middle of its waypoint path), using its explicit or derived title. The **Show titles** toggle gains a third state: **Off → Nodes only → Nodes and links**. Link titles follow the same rules as node titles (stay under UI panels, fade with distance). |
+
+**Wave 2**
+
+| Feature | What it does |
+|---|---|
+| **Movable Markdown panels** | Markdown editor/Reader tabs can be moved around inside the app window and resized like windows (drag the title bar and edges, plus keyboard commands to move and resize). Positions are remembered. |
+| **Save all preferences** | Every view and layout preference persists across restarts: titles on/off and mode, editor position and size, legend, panel layout, and so on. |
+| **Search by title and hashtag** | Find nodes (and links) by title or by `#hashtag` in their Markdown, building on the existing palette search. The owner has mentioned **advanced hashtags**; their exact form is to be confirmed with the owner before wave 2 starts. |
+
+**Wave 3**
+
+| Feature | What it does |
+|---|---|
+| **Grok Bot integration** | Lets Grok Bots read and edit Noosphere maps. Design to be agreed with the owner before wave 3. |
+| **Multi-user** | A central, shared Noosphere that all of the owner's Grok Bots can see and add to. Depends on the integration above; also needs a sync and conflict design, since storage is local-only today. |
 
 ### Rough shape of the total
 

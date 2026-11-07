@@ -33,7 +33,7 @@ A new tab starts with one empty node in Edit, and the status reads “Not saved 
 | Alt+1–9 | Show or hide that type. Alt+0 shows every type |
 | Shift+L | Legend: Space cycles shown, dimmed, hidden. S solos. A shows all |
 | Mod+Shift+L | Link-type manager. Enter edits, Mod+N adds, Alt+arrows reorder the number keys, Delete asks before removing a type |
-| G | Grab the selected node. Move the mouse or nudge with the arrows (Shift is a larger step). X/Y/Z lock a world axis, wheel or PageUp/PageDown change depth, Shift slows the mouse, Ctrl/Cmd snaps to 0.5. Click or Enter keeps the move. Esc or right-click puts it back |
+| G | Grab the selected node. The node follows the pointer 1:1 on the plane facing the camera at the node's depth. Shift keeps that travel finer. Arrow nudges are unchanged (Shift is a larger step). X/Y/Z lock a world axis, wheel or PageUp/PageDown change depth, Ctrl/Cmd snaps to 0.5. Click or Enter keeps the move. Esc or right-click puts it back |
 | Delete / Backspace | Delete the selected node (its links go too) or the selected link |
 | Mod+Z / Mod+Shift+Z / Ctrl+Y | Undo / redo. Typing in one edit session is a single step until you pause |
 | Mod+\ | Pin the Reader so it follows the selection while the scene keeps the keyboard |
@@ -46,7 +46,7 @@ A new tab starts with one empty node in Edit, and the status reads “Not saved 
 | Shift+F or Home | Frame every node |
 | V | View operator: move the mouse to orbit, Shift pans, wheel zooms. Click or Enter keeps the view. Esc or right-click restores it |
 | Ctrl+Up / Ctrl+Down (Cmd on macOS) | Step nearer / farther in depth |
-| `` ` `` | Cycle label drawing: SDF, CSS2D, icons only. Shift+`` ` `` toggles nearby titles and every title in front of the camera |
+| `` ` `` | Show titles: Off, then Nodes only, then Nodes and links. Shift+`` ` `` toggles nearby titles and every title in front of the camera. SDF and CSS2D stay as buttons in the Labels section |
 | M | Open the other of the stress map and the flooding sample in a new tab |
 | Mod+S / Mod+Shift+S | Save / Save As. Manual save is the default |
 | Mod+O | Open a `.mindmap3d` file. A path that is already open switches to that tab |
@@ -62,13 +62,15 @@ A new tab starts with one empty node in Edit, and the status reads “Not saved 
 
 Mouse: left-drag orbits, right-drag or middle-drag pans, wheel zooms. Click a title or a link to select it. Clicking empty space leaves the selection as it is. Click a document icon, or double-click a link label, to open the Reader. Double-click a title to focus it. The scene renders on demand and keeps drawing while the camera is moving.
 
-Icons are billboarded document sprites with a minimum on-screen size. A page with text lines has body copy beyond its title; a blank page is title only. Link curves are batched per type (colour, dash pattern, width), with cone arrowheads that stay at least 12 pixels tall, and a fan around the pair axis. Waypoint links keep the user's route. A self-link draws as a loop. Link labels are two SDF lines (title, then a smaller type name); a link with no title shows only the type.
+Icons are billboarded document sprites with a minimum on-screen size. A page with text lines has body copy beyond its title; a blank page is title only. Link curves are batched per type (colour, dash pattern, width), with cone arrowheads that stay at least 12 pixels tall, and a fan around the pair axis. Waypoint links keep the user's route. A self-link draws as a loop. Show titles → Nodes and links draws each link's explicit or derived title at the middle of its path (or the middle of its waypoint route), at the same size as a node title. Nodes only hides those link titles. Titles are drawn in the scene layer, under the editor, Reader, Maps panel, legend, palette, and status bar.
 
 The Reader is docked on the right. It renders Markdown with `markdown-it` (raw HTML off) and DOMPurify. Image markdown is a labelled placeholder, and links open in a new tab. Edit mode is a title field plus CodeMirror, with a live preview underneath. Alt+T moves between the title and the body. When the Reader opens, focus moves to its heading. Positions are part of the document. Save writes them, along with the camera and type filters, into the `.mindmap3d` file. Camera moves and type filters are not undo steps and do not mark the map unsaved. In autosave mode they do not start a save; the next save from a real edit writes them. In manual mode, closing after only those changes does not prompt and does not write the file. The camera is copied in at save time.
 
 A small axis gizmo sits in the corner of the scene. It has no keys of its own. Preferences can hide it. A clipped ARIA tree mirrors the selected node's links, grouped by type, and a polite live region announces selection and mode changes. Loops are named once, without listing that node's links again. Tab creates a node only while the scene has focus, so F6 can move through the rest of the page.
 
 Link mode draws a dashed rubber band from the source to the aimed node. Enter, or a click, creates the link when a type is already chosen or when Preferences has “Skip the picker” on. Otherwise the type picker opens. The next Enter on that link opens the Reader, where E edits the link text. Hidden types are not drawn and are skipped by cycle and follow. Dimmed types stay faint and can still be navigated. Those filters sit on the map view, so a save keeps them, and they are not undo steps. The legend lists every type, greying unused ones, and each row shows that type’s colour, dash pattern, and arrow direction.
+
+Opening or saving a `.mindmap3d` file names the map from that file, without the extension, in the tab, the window title, and Maps. A map with no file stays “Untitled map”. Maps can list the pre-made maps plus any saved map or other file. The list is kept in preferences. Removing an entry does not delete the file. In the Markdown editor, under the pin control, a node's X, Y, and Z are editable. Each change is one undo step, and the fields follow the node while it is grabbed.
 
 Saving is manual until Preferences switches it to autosave. Autosave waits about two seconds after a document edit, and at most about thirty seconds during a burst, and it also runs when the window blurs or closes. A camera move or a type-filter change does not start that timer. Turning autosave on does not itself write the file. A recovery copy is written in both modes after a short idle. Closing a never-saved map, or a manually saved map with unsaved edits, asks Save / Don’t save / Cancel. Several such tabs ask Save all / Review each / Discard all / Cancel. Undo back to the saved history is clean. A file changed by another program is not overwritten. A map from a newer major version is refused and left untouched, with the message “This map was made with a newer version of the app. Please update to open it.” Preferences stay on this computer, not in the map file.
 

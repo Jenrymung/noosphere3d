@@ -28,6 +28,8 @@
     onRedo,
     documentMarkdown = null,
     documentTitle = "Third-party notices",
+    nodePosition = null,
+    onPosition,
   }: {
     doc: MapDocument;
     shown: Target | null;
@@ -50,6 +52,8 @@
     /** Bundled markdown shown instead of the selected note. Null keeps the map Reader. */
     documentMarkdown?: string | null;
     documentTitle?: string;
+    nodePosition?: { x: number; y: number; z: number } | null;
+    onPosition?: (axis: "x" | "y" | "z", value: number) => void;
   } = $props();
 
   let root = $state<HTMLElement | null>(null);
@@ -74,6 +78,35 @@
   });
 
   const documentMode = $derived(documentMarkdown !== null);
+  let coordText = $state({ x: "0", y: "0", z: "0" });
+  let coordFocus = $state<"x" | "y" | "z" | null>(null);
+
+  $effect(() => {
+    if (!nodePosition) return;
+    for (const axis of ["x", "y", "z"] as const) {
+      if (coordFocus === axis) continue;
+      coordText[axis] = formatCoordinate(nodePosition[axis]);
+    }
+  });
+
+  function commitAxis(axis: "x" | "y" | "z", raw: string) {
+    if (raw.trim() === "") return;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return;
+    onPosition?.(axis, value);
+  }
+
+  function stepAxis(event: KeyboardEvent, axis: "x" | "y" | "z") {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const typed = Number(coordText[axis]);
+    const current = Number.isFinite(typed) ? typed : (nodePosition?.[axis] ?? 0);
+    const direction = event.key === "ArrowUp" ? 1 : -1;
+    const next = Math.round((current + direction * (event.shiftKey ? 1 : 0.1)) * 1000) / 1000;
+    coordText[axis] = formatCoordinate(next);
+    onPosition?.(axis, next);
+  }
   const node = $derived(shown?.kind === "node" ? doc.nodes[shown.id] : undefined);
   const link = $derived(shown?.kind === "link" ? doc.links[shown.id] : undefined);
   const reading = $derived(documentMode ? (documentMarkdown ?? "") : mode === "read" ? (node?.text ?? link?.text ?? "") : draftText);
@@ -133,7 +166,12 @@
     };
   });
 
-  function endpoint(id: string): string {
+  function formatCoordinate(value: number): string {
+  if (!Number.isFinite(value)) return "";
+  return String(Math.round(value * 1000) / 1000);
+}
+
+function endpoint(id: string): string {
     const item = doc.nodes[id];
     return item ? nodeTitle(item) || "Untitled" : id;
   }
@@ -178,6 +216,7 @@
       else titleEl?.focus();
       return;
     }
+    if (event.target instanceof HTMLInputElement && event.target.dataset.axis) return;
     if (documentMode && mode === "read" && (event.code === "KeyE" || event.key === "Enter") && !mod && !event.altKey) {
       event.preventDefault();
       return;
@@ -219,6 +258,30 @@
       </button>
     {/if}
   </header>
+
+  {#if !documentMode && shown?.kind === "node" && nodePosition}
+    <div class="coords" role="group" aria-label="Node coordinates">
+      {#each ["x", "y", "z"] as axis (axis)}
+        <label>
+          <span>{axis.toUpperCase()}</span>
+          <input
+            type="number"
+            step="0.1"
+            data-axis={axis}
+            aria-label={`${axis.toUpperCase()} coordinate`}
+            bind:value={coordText[axis as "x" | "y" | "z"]}
+            onfocus={() => (coordFocus = axis as "x" | "y" | "z")}
+            onblur={() => {
+              coordFocus = null;
+              commitAxis(axis as "x" | "y" | "z", coordText[axis as "x" | "y" | "z"]);
+            }}
+            onkeydown={(event) => stepAxis(event, axis as "x" | "y" | "z")}
+            onchange={(event) => commitAxis(axis as "x" | "y" | "z", event.currentTarget.value)}
+          />
+        </label>
+      {/each}
+    </div>
+  {/if}
 
   {#if mode === "edit" && shown && !documentMode}
     <label class="title-field">
@@ -286,7 +349,7 @@
     gap: 10px;
     padding: 14px;
     border-radius: 12px;
-    background: rgba(12, 18, 28, 0.92);
+    background: #0c121c;
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
     overflow: hidden;
@@ -294,6 +357,36 @@
 
   .reader.wide {
     width: min(720px, calc(100vw - 32px));
+  }
+
+  .coords {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .coords label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #9aabbd;
+  }
+
+  .coords input {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    letter-spacing: 0;
+    text-transform: none;
+    font-variant-numeric: tabular-nums;
+    color: #e7eef6;
+    background: #0e1620;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    padding: 4px 6px;
   }
 
   .reader-head {

@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { produce } from "immer";
   import "@fontsource/source-sans-3/400.css";
-  import { freshTrack, markEdited, markSaved, promptFor, resolveTheme, statusFor, ensureSuffix, tabTitle, windowTitle, type SaveTrack } from "$lib/app/tabState";
+  import { freshTrack, markEdited, markSaved, promptFor, resolveTheme, statusFor, ensureSuffix, mapDisplayName, windowTitle, type SaveTrack } from "$lib/app/tabState";
   import { createId } from "$lib/core/document";
   import { MapSession } from "$lib/core/session";
   import { liveAnnouncement } from "$lib/a11y/announce";
@@ -36,7 +36,7 @@
   import { RELEASES_PAGE_URL, openReleasesPage } from "$lib/about/releases";
   import { createFileBridge, createMemoryBridge, type FileBridge, type RecoveryItem } from "$lib/io/bridge";
   import { BROWSER_ERROR_LOG_KEY, installErrorLog } from "$lib/io/errorLog";
-  import { DEFAULT_PREFERENCES, normalizePreferences, type Preferences } from "$lib/io/preferences";
+  import { addFavourite, DEFAULT_PREFERENCES, normalizePreferences, removeFavourite, type FavouriteMap, type Preferences } from "$lib/io/preferences";
   import { urbanFloodingDocument } from "$lib/io/sampleMap";
   import { serialize } from "$lib/io/serialize";
   import { shouldAutosave, shouldRotateBackup, shouldWriteRecovery } from "$lib/io/saveController";
@@ -47,6 +47,7 @@
     type LabelDensity,
     type LabelMode,
   } from "$lib/scene/createScene";
+  import { titleScopeLabel } from "$lib/scene/titleScope";
   import { stressMap } from "$lib/scene/dummyMap";
   import { placeNode } from "$lib/scene/placement";
   import { rubberStroke } from "$lib/scene/rubber";
@@ -76,12 +77,15 @@
     links: 0,
     visibleLabels: 0,
     labelMode: "sdf",
+    titleScope: "nodes",
     density: "nearby",
     selectedId: null,
     selectedLinkId: null,
     selectionKind: "none",
     selectedTitle: "Loading the map",
     operator: "",
+    grabNodeId: null,
+    grabPosition: null,
     neighbours: 0,
     message: "",
     ready: false,
@@ -201,8 +205,22 @@
       const sess = id === activeId ? session : shelf.get(id)?.session;
       const track = saves.get(id);
       const status = track && sess ? statusFor(track, preferences, sess.history.stateId) : { mark: "", text: "" };
-      return { id, title: tabTitle(sess?.doc.meta.title), mark: status.mark };
+      return { id, title: mapDisplayName(sess?.doc.meta.title, track?.path), mark: status.mark };
     });
+  });
+  const editorPosition = $derived.by(() => {
+    revision;
+    hud.operator;
+    hud.grabNodeId;
+    hud.grabPosition;
+    if (shown?.kind !== "node") return null;
+    if (hud.operator === "grab" && hud.grabNodeId === shown.id && hud.grabPosition) return hud.grabPosition;
+    return session.doc.nodes[shown.id]?.position ?? null;
+  });
+  const currentMapName = $derived.by(() => {
+    pulse;
+    revision;
+    return mapDisplayName(session.doc.meta?.title, saves.get(activeId)?.path);
   });
   const fileStatus = $derived.by(() => {
     pulse;
@@ -305,7 +323,7 @@
   async function refreshTitle() {
     const track = saves.get(activeId);
     const status = track ? statusFor(track, preferences, session.history.stateId) : { mark: "", text: "" };
-    await bridge.setTitle(windowTitle(status.mark, tabTitle(session.doc.meta.title)));
+    await bridge.setTitle(windowTitle(status.mark, mapDisplayName(session.doc.meta?.title, track?.path)));
   }
 
   function fail(error: unknown) {
@@ -1407,7 +1425,7 @@
     const record: RecoveryItem = {
       id: track.recoveryId,
       savedAt: new Date(now).toISOString(),
-      title: tabTitle(sess.doc.meta.title),
+      title: mapDisplayName(sess.doc.meta.title, track?.path),
       path: track.path,
       mapText: snapshotText(sess, poseFor(id)),
     };
@@ -1486,7 +1504,7 @@
     const sess = sessionFor(id);
     const track = saves.get(id);
     if (!sess || !track) return false;
-    const suggested = `${tabTitle(sess.doc.meta.title)}.mindmap3d`;
+    const suggested = `${mapDisplayName(sess.doc.meta.title, track.path)}.mindmap3d`;
     let path = bridge.native ? await bridge.pickSave(suggested) : null;
     if (!path) {
       const files = await bridge.listFiles();
@@ -1597,7 +1615,7 @@
     }
     if (promptFor(track, preferences, sess.history.stateId)) {
       pendingClose = id;
-      dialog = { kind: "close-tab", title: tabTitle(sess.doc.meta.title) };
+      dialog = { kind: "close-tab", title: mapDisplayName(sess.doc.meta.title, track?.path) };
       return;
     }
     dropTab(id, true);
@@ -1609,7 +1627,7 @@
       const sess = sessionFor(id);
       const track = saves.get(id);
       if (!sess || !track) continue;
-      if (promptFor(track, preferences, sess.history.stateId)) rows.push({ id, title: tabTitle(sess.doc.meta.title) });
+      if (promptFor(track, preferences, sess.history.stateId)) rows.push({ id, title: mapDisplayName(sess.doc.meta.title, track.path) });
     }
     return rows;
   }
@@ -1814,7 +1832,7 @@
     if (next) {
       const sess = sessionFor(next);
       pendingClose = next;
-      dialog = { kind: "close-tab", title: tabTitle(sess?.doc.meta.title) };
+      dialog = { kind: "close-tab", title: mapDisplayName(sess?.doc.meta.title, saves.get(next)?.path) };
       return;
     }
     if (quitAfterClose) {
@@ -2000,7 +2018,7 @@
           const sess = sessionFor(id);
           const track = saves.get(id);
           const status = track && sess ? statusFor(track, preferences, sess.history.stateId) : { mark: "", text: "" };
-          return { id, title: tabTitle(sess?.doc.meta.title), mark: status.mark, path: track?.path ?? null, text: status.text };
+          return { id, title: mapDisplayName(sess?.doc.meta.title, track?.path), mark: status.mark, path: track?.path ?? null, text: status.text };
         }),
         saveStatus: fileStatus,
         preferences,
@@ -2103,6 +2121,64 @@
     scene?.setLabelMode(mode);
   }
 
+  function cycleTitles() {
+    scene?.cycleTitleScope();
+  }
+
+  function setNodeCoordinate(id: string, axis: "x" | "y" | "z", value: number) {
+    const node = session.doc.nodes[id];
+    if (!node || node.position[axis] === value) return;
+    try {
+      session.dispatch({ type: "moveNodes", moves: [{ id, position: { ...node.position, [axis]: value } }] });
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    bump();
+    scene?.sync(session.doc, "structure");
+  }
+
+  function rememberFavourite(entry: FavouriteMap) {
+    const next = addFavourite(preferences.favouriteMaps, entry);
+    if (!next.added) {
+      scene?.flash("Already in Maps");
+      return;
+    }
+    updatePreferences({ ...preferences, favouriteMaps: next.list });
+  }
+
+  function addCurrentFavourite() {
+    const path = saves.get(activeId)?.path;
+    if (!path) {
+      scene?.flash("Save the map before adding it. Adding a map does not create a file.");
+      return;
+    }
+    rememberFavourite({ id: `file:${path}`, label: mapDisplayName(session.doc.meta?.title, path), kind: "file", path });
+  }
+
+  async function addFileFavourite() {
+    let path = bridge.native ? await bridge.pickOpen() : null;
+    if (!path) {
+      const files = await bridge.listFiles();
+      path = await askPath("open", "", files);
+    }
+    if (!path) return;
+    path = ensureSuffix(path);
+    rememberFavourite({ id: `file:${path}`, label: mapDisplayName(undefined, path), kind: "file", path });
+  }
+
+  function removeMapFavourite(id: string) {
+    updatePreferences({ ...preferences, favouriteMaps: removeFavourite(preferences.favouriteMaps, id) });
+  }
+
+  function openFavourite(entry: FavouriteMap) {
+    if (entry.kind === "builtin" && entry.builtin) {
+      chooseMap(entry.builtin);
+      return;
+    }
+    if (entry.path) void openFromPath(entry.path);
+  }
+
   function setDensity(density: LabelDensity) {
     scene?.setDensity(density);
   }
@@ -2172,7 +2248,7 @@
       <span class="mark" aria-hidden="true"></span>
       <div>
         <p class="eyebrow">Noosphere 3D</p>
-        <h1>{doc.meta.title || "Untitled map"}</h1>
+        <h1>{currentMapName}</h1>
       </div>
     </div>
     <TabStrip tabs={strip} {activeId} onActivate={activate} onClose={(id) => void requestClose(id)} />
@@ -2228,12 +2304,21 @@
     </div>
 
     <div class="group">
-      <p class="kicker">Map</p>
+      <p class="kicker" id="maps-label">Maps</p>
+      <p class="meta">This map: {currentMapName}</p>
       <div class="row">
-        <button type="button" class:on={mapKind === "new"} onclick={newMap}>New tab</button>
-        <button type="button" class:on={mapKind === "stress"} onclick={() => chooseMap("stress")}>2,304 nodes</button>
-        <button type="button" class:on={mapKind === "sample"} onclick={() => chooseMap("sample")}>Flooding sample</button>
+        <button type="button" onclick={newMap}>New tab</button>
+        <button type="button" onclick={addCurrentFavourite}>Add this map</button>
+        <button type="button" onclick={() => void addFileFavourite()}>Add a file</button>
       </div>
+      <ul class="favs" aria-labelledby="maps-label">
+        {#each preferences.favouriteMaps as fav (fav.id)}
+          <li>
+            <button type="button" onclick={() => openFavourite(fav)}>{fav.label}</button>
+            <button type="button" aria-label={`Remove ${fav.label} from Maps`} onclick={() => removeMapFavourite(fav.id)}>Remove</button>
+          </li>
+        {/each}
+      </ul>
     </div>
 
     <div class="group">
@@ -2265,6 +2350,11 @@
 
     <div class="group">
       <p class="kicker">Labels</p>
+      <div class="row">
+        <button type="button" aria-label={`Show titles: ${titleScopeLabel(hud.titleScope)}. Activate to change.`} onclick={cycleTitles}>
+          Show titles: {titleScopeLabel(hud.titleScope)}
+        </button>
+      </div>
       <div class="row">
         <button type="button" class:on={hud.labelMode === "sdf"} onclick={() => setMode("sdf")}>SDF</button>
         <button type="button" class:on={hud.labelMode === "css2d"} onclick={() => setMode("css2d")}>CSS2D</button>
@@ -2353,6 +2443,10 @@
       onRedo={redo}
       documentMarkdown={viewingNotices ? EMBEDDED_THIRD_PARTY_NOTICES : null}
       documentTitle={NOTICES_DOCUMENT_TITLE}
+      nodePosition={editorPosition}
+      onPosition={(axis, value) => {
+        if (shown?.kind === "node") setNodeCoordinate(shown.id, axis, value);
+      }}
     />
   {/if}
 
@@ -2507,8 +2601,13 @@
   :global(.css2d-layer) {
     position: absolute;
     inset: 0;
+    z-index: 0;
     pointer-events: none;
     overflow: hidden;
+  }
+
+  :global(.css2d-layer *) {
+    z-index: 0 !important;
   }
 
   :global(.label-anchor) {
@@ -2544,6 +2643,8 @@
   .viewport {
     position: absolute;
     inset: 0;
+    z-index: 0;
+    isolation: isolate;
   }
 
   .top,
@@ -2558,6 +2659,9 @@
     top: 16px;
     left: 16px;
     right: 16px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: #101820;
     display: flex;
     justify-content: space-between;
     gap: 16px;
@@ -2624,7 +2728,7 @@
     overflow: auto;
     padding: 14px;
     border-radius: 12px;
-    background: rgba(12, 18, 28, 0.82);
+    background: #0c121c;
     border: 1px solid rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(10px);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
@@ -2658,6 +2762,26 @@
 
   .group {
     margin-top: 12px;
+  }
+
+  .favs {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .favs li {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .favs li button:first-child {
+    flex: 1;
+    text-align: left;
   }
 
   .row {
@@ -2743,6 +2867,9 @@
     left: 16px;
     right: 16px;
     bottom: 14px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: #101820;
     display: flex;
     flex-wrap: wrap;
     gap: 8px 14px;
@@ -2779,9 +2906,14 @@
   }
 
   :global(html[data-theme="light"]) .tools {
-    background: rgba(255, 252, 246, 0.92);
+    background: #f7f4ee;
     border-color: rgba(28, 36, 48, 0.12);
     color: #1c2430;
+  }
+
+  :global(html[data-theme="light"]) .top,
+  :global(html[data-theme="light"]) .keys {
+    background: #f4f1ea;
   }
 
   :global(html[data-theme="light"]) .status,

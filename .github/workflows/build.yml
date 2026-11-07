@@ -21,7 +21,7 @@
 # string it found. A local dev build writes a short placeholder when
 # the tools are missing.
 #
-# Pushes to main and workflow_dispatch do not create a GitHub Release.
+# Pushes to main, pull requests, and workflow_dispatch do not create a GitHub Release.
 # A push of a v* tag creates a draft pre-release, tauri-action attaches
 # the installers, and a final job adds THIRD-PARTY-NOTICES.md and
 # publishes that pre-release. macOS stays ad-hoc signed. Windows stays
@@ -35,6 +35,7 @@ on:
       - main
     tags:
       - "v*"
+  pull_request:
   workflow_dispatch:
 
 permissions:

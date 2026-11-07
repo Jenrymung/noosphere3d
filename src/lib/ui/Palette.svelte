@@ -106,7 +106,7 @@
     width: min(520px, calc(100vw - 24px));
     padding: 14px;
     border-radius: 12px;
-    background: rgba(12, 18, 28, 0.96);
+    background: #0c121c;
     border: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
     color: #e7eef6;

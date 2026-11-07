@@ -124,6 +124,23 @@ export function tabTitle(title: string | undefined): string {
   return trimmed ? trimmed : "Untitled map";
 }
 
+/** `C:\maps\notes.mindmap3d` and `/maps/notes.mindmap3d` both become `notes`. */
+export function fileStem(path: string): string {
+  const base = path.replace(/\\/g, "/").split("/").pop() ?? path;
+  return base.replace(/\.mindmap3d$/i, "").trim();
+}
+
+/**
+ * A saved map is named from its file. A map with no path keeps its title, or "Untitled map".
+ */
+export function mapDisplayName(metaTitle: string | undefined, path: string | null | undefined): string {
+  if (path) {
+    const stem = fileStem(path);
+    if (stem) return stem;
+  }
+  return tabTitle(metaTitle);
+}
+
 export function windowTitle(mark: string, title: string): string {
   return mark ? `${mark} ${title} — Noosphere 3D` : `${title} — Noosphere 3D`;
 }

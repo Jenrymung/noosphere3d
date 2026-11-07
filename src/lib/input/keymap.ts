@@ -154,5 +154,6 @@ export const KEYMAP: Binding[] = [
   { id: "grab-cancel", group: "Grab", keys: "Esc or right-click", action: "Put the node back", chords: [{ key: "Escape" }] },
   { id: "view-keep", group: "View", keys: "Enter or click", action: "Keep the camera", chords: [{ key: "Enter" }] },
   { id: "view-cancel", group: "View", keys: "Esc or right-click", action: "Restore the camera", chords: [{ key: "Escape" }] },
-  { id: "label-dev", group: "Dev", keys: "` / Shift+`", action: "Label drawing toggles", chords: [{ code: "Backquote" }, { code: "Backquote", shift: true }], devOnly: true },
+  { id: "titles", group: "Navigate", keys: "`", action: "Show titles: off, nodes only, then nodes and links", chords: [{ code: "Backquote" }] },
+  { id: "title-density", group: "Navigate", keys: "Shift+`", action: "Nearby titles or every title in front of the camera", chords: [{ code: "Backquote", shift: true }] },
 ];

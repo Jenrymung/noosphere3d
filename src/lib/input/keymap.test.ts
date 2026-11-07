@@ -35,7 +35,8 @@ describe("keymap", () => {
     const flat = sections.flatMap((section) => section.rows.map((row) => row.keys));
     expect(flat).toContain("/ or Mod+K");
     expect(flat).toContain("?");
-    expect(flat.some((keys) => keys.includes("`"))).toBe(false);
+    expect(flat).toContain("`");
+    expect(flat).toContain("Shift+`");
     expect(sections.some((section) => section.title === "Dev")).toBe(false);
     expect(bindingById("palette").chords).toHaveLength(2);
   });

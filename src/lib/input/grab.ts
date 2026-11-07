@@ -34,6 +34,12 @@ export class GrabOperator {
     if (options?.snap) this.snapOffset(options.snap);
   }
 
+  /** Replace the offset. Mouse grabs use this so the node matches the cursor, instead of adding a scaled pixel step. */
+  setOffset(next: Vec, options?: { snap?: number | null }): void {
+    this.offset = { x: next.x, y: next.y, z: next.z };
+    if (options?.snap) this.snapOffset(options.snap);
+  }
+
   position(): Vec {
     const offset = this.constrained();
     return { x: this.origin.x + offset.x, y: this.origin.y + offset.y, z: this.origin.z + offset.z };

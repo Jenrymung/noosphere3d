@@ -1,5 +1,19 @@
 # Pre-release checks still owed
 
+## Feedback round 1 (owner review)
+
+Implemented on the wave 1 branch. These still need a person at the machine. This environment did not launch the desktop window, so none of the visual or mouse checks below were done here.
+
+- [ ] Open and save a `.mindmap3d` file and confirm the tab, the window title, and Maps → “This map” all show the file name without `.mindmap3d`. An unsaved map stays “Untitled map”.
+- [ ] With titles on, move a node behind the Markdown editor, the Reader, the Maps panel, the legend, the command palette, and the status bar. The title must stay hidden behind each of those panels, in both SDF and CSS2D.
+- [ ] Grab a node (G, then move the pointer). It should follow the cursor 1:1 on the camera-facing plane. Shift should make that travel finer. Arrow nudges should feel as they did before.
+- [ ] Maps: add the current saved map, add another file, remove a pre-made entry and a file entry, restart the app. The list should match. No file on disk should be deleted.
+- [ ] In the Markdown editor, with a node open, edit X, Y, and Z. Each change is one undo. Moving the node another way updates the fields.
+- [ ] Show titles cycles Off → Nodes only → Nodes and links. Link titles sit at the middle of the link, including a waypoint path, and use the same under-panel rule as node titles.
+- [ ] Windows and macOS still need a real-hardware pass. CI can build them; it does not click through the app.
+
+## Earlier checks
+
 These need a person, another operating system, or a real GPU. This Linux VM did not complete them.
 
 - [ ] **Orca** on Linux, against the Tauri window: selection announcements, Reader open, command palette. Attempted here with Orca 46.1. A normal launch does not register the WebKitGTK window with AT-SPI. With the WebKit sandbox turned off for the test, the window does appear (buttons, the neighbourhood tree, and the About dialog). Orca spoke “Screen reader on.” and then produced no announcement for selection, the Reader, or the palette. A second launch stalled in speech-dispatcher. Those three flows are still owed.
